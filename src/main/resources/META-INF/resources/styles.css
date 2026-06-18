@@ -1,0 +1,1537 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@100..900&display=swap');
+
+html {
+    --aura-accent-color-dark: #EEEEEE;
+    --aura-accent-color-light: #009689;
+    --aura-background-color-dark: #171717;
+    --aura-background-color-light: #FFFFFF;
+    --aura-base-font-size: 13;
+    --aura-base-radius: 4;
+    --aura-base-size: 20;
+    --aura-font-family: 'Roboto', var(--aura-font-family-system);
+    --aura-overlay-surface-opacity: 1;
+    --aura-surface-level: -0.5;
+}
+
+vaadin-side-nav::part(label) {
+    text-transform: uppercase;
+    font-size: var(--aura-font-size-xs);
+    color: var(--vaadin-text-color);
+    letter-spacing: 0.03em;
+}
+
+html {
+    --vaadin-button-border-color: var(--vaadin-border-color);
+    --vaadin-button-shadow: none;
+}
+
+:is(vaadin-button, vaadin-menu-bar-button, vaadin-upload-button):not([theme~="primary"]) {
+    --vaadin-button-background: var(--vaadin-background-container);
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+}
+
+vaadin-app-layout {
+    --vaadin-app-layout-drawer-width: 220px;
+}
+
+vaadin-app-layout::part(drawer) {
+    background: #FFFFFF;
+    border-right: 0;
+    box-shadow: none;
+}
+
+vaadin-app-layout::part(navbar) {
+    background: #FFFFFF;
+    border-bottom: 0;
+    box-shadow: none;
+}
+
+.app-header {
+    align-items: center;
+    box-sizing: border-box;
+    display: flex;
+    min-height: 64px;
+    padding: 0 18px 0 8px;
+    width: 100%;
+}
+
+.app-drawer-toggle {
+    color: #10233C;
+}
+
+.app-header-spacer {
+    flex: 1 1 auto;
+}
+
+.app-header-actions {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+}
+
+.app-header-icon-button {
+    --vaadin-button-background: transparent;
+    --vaadin-button-text-color: #10233C;
+    border-radius: 999px;
+    height: 42px;
+    min-width: 42px;
+    width: 42px;
+}
+
+.app-header-icon-button vaadin-icon {
+    --vaadin-icon-size: 24px;
+}
+
+.app-user-trigger {
+    --vaadin-button-background: transparent;
+    border-radius: 999px;
+    height: 48px;
+    min-width: 48px;
+    padding: 0;
+    width: 48px;
+}
+
+.app-user-avatar {
+    align-items: center;
+    background: #EA5DAE;
+    border-radius: 999px;
+    color: #FFFFFF;
+    display: inline-flex;
+    font-size: 19px;
+    font-weight: 800;
+    height: 48px;
+    justify-content: center;
+    line-height: 1;
+    width: 48px;
+}
+
+.app-user-menu-panel {
+    background: #FFFFFF;
+    box-sizing: border-box;
+    min-width: 300px;
+    padding: 0;
+}
+
+.app-user-menu-summary {
+    border-bottom: 1px solid #D8DEE8;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 18px 20px 16px;
+    width: 100%;
+}
+
+vaadin-app-layout > [slot="drawer"] {
+    box-sizing: border-box;
+    min-height: 100%;
+    padding: 20px 12px 16px;
+    width: 100%;
+}
+
+vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
+    align-items: stretch;
+    box-sizing: border-box;
+    gap: 6px;
+    padding: 0;
+    width: 100%;
+}
+
+.app-nav-link,
+.app-nav-link:visited {
+    align-items: center;
+    border-radius: 10px;
+    box-sizing: border-box;
+    color: #364960;
+    display: flex;
+    font-size: 14px;
+    font-weight: 400;
+    gap: 10px;
+    line-height: 1.15;
+    min-height: 40px;
+    padding: 0 12px;
+    text-decoration: none;
+    transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+    width: 100%;
+}
+
+.app-nav-link vaadin-icon {
+    --vaadin-icon-size: 20px;
+    color: #10233C;
+    flex: 0 0 auto;
+}
+
+.app-nav-link span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.app-nav-link:hover {
+    background: #F3F4F7;
+    color: #364960;
+}
+
+.app-nav-link:focus-visible {
+    outline: 3px solid rgba(0, 150, 137, 0.28);
+    outline-offset: 3px;
+}
+
+.app-nav-link[highlight],
+.app-nav-link[aria-current="page"],
+.app-nav-link.router-link-active {
+    background: #009689;
+    color: #FFFFFF;
+    font-weight: 700;
+}
+
+.app-nav-link[highlight] vaadin-icon,
+.app-nav-link[aria-current="page"] vaadin-icon,
+.app-nav-link.router-link-active vaadin-icon {
+    color: #FFFFFF;
+}
+
+.app-nav-link[highlight]:hover,
+.app-nav-link[aria-current="page"]:hover,
+.app-nav-link.router-link-active:hover {
+    background: #008F83;
+    color: #FFFFFF;
+}
+
+.app-nav-button {
+    --vaadin-button-background: transparent;
+    --vaadin-button-text-color: #364960;
+    justify-content: flex-start;
+    min-height: 40px;
+    padding: 0 12px;
+    width: 100%;
+}
+
+.app-nav-button vaadin-icon {
+    --vaadin-icon-size: 20px;
+    color: #10233C;
+}
+
+.drawer-spacer {
+    flex: 1 1 auto;
+}
+
+.app-user-name {
+    color: #10233C;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-user-email {
+    color: #6B7280;
+    font-size: 13px;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-user-menu-action {
+    --vaadin-button-background: transparent;
+    --vaadin-button-text-color: #1F2937;
+    border-radius: 0;
+    font-size: 14px;
+    font-weight: 600;
+    justify-content: flex-start;
+    min-height: 48px;
+    padding: 0 20px;
+    width: 100%;
+}
+
+.app-user-menu-action vaadin-icon {
+    --vaadin-icon-size: 18px;
+    color: #10233C;
+}
+
+.password-dialog-content {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px;
+    width: min(420px, calc(100vw - 48px));
+}
+
+.password-dialog-header h3 {
+    color: #111827;
+    font-size: 18px;
+    line-height: 1.2;
+    margin: 0 0 6px;
+}
+
+.password-dialog-header p {
+    color: #667085;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.password-dialog-actions {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding-top: 4px;
+}
+
+.logo {
+    width: 50px;
+    margin-bottom: 12px;
+    padding-left: 5px;
+}
+
+.login-view {
+    align-items: center;
+    background: #F6F8FA;
+    box-sizing: border-box;
+    justify-content: center;
+    min-height: 100vh;
+}
+
+.login-card {
+    background: #FFFFFF;
+    border: 1px solid #D8DEE8;
+    border-radius: 8px;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+    box-sizing: border-box;
+    padding: 26px 28px 22px;
+    width: min(100% - 32px, 420px);
+}
+
+.login-brand {
+    color: #10233C;
+    font-size: 20px;
+    font-weight: 800;
+    display: flex;
+    justify-content: center;
+}
+
+.login-card vaadin-login-form {
+    max-width: none;
+    width: 100%;
+}
+
+.page-view {
+    box-sizing: border-box;
+    height: 100%;
+    overflow: hidden;
+}
+
+.pipeline-header {
+    align-items: center;
+    box-sizing: border-box;
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    padding: 18px 24px 14px;
+}
+
+.pipeline-title-group h2 {
+    color: #111827;
+    font-size: 22px;
+    line-height: 1.2;
+    margin: 0;
+}
+
+.pipeline-title-group p {
+    color: #6B7280;
+    font-size: 13px;
+    margin: 4px 0 0;
+}
+
+.pipeline-header-actions {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    gap: 10px;
+}
+
+.pipeline-search-field {
+    width: 260px;
+    --vaadin-input-field-height: 36px;
+}
+
+.pipeline-search-field vaadin-icon {
+    --vaadin-icon-size: 16px;
+    color: #667085;
+}
+
+.pipeline-create-button,
+.kanban-empty-button {
+    color: #008F83;
+    font-weight: 700;
+}
+
+.kanban-master-detail {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.kanban-master-detail::part(backdrop) {
+    background: rgba(17, 24, 39, 0.48);
+}
+
+.kanban-board {
+    box-sizing: border-box;
+    display: flex;
+    gap: 12px;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 16px 16px;
+}
+
+.kanban-column {
+    background: #FFFFFF;
+    border: 1px solid #D8DEE8;
+    border-radius: 8px;
+    box-sizing: border-box;
+    display: flex;
+    flex: 0 0 320px;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.kanban-column-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 16px 14px 8px;
+}
+
+.kanban-column-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.kanban-column-title {
+    color: #344054;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.kanban-column-summary {
+    color: #344054;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.kanban-column-add,
+.pipeline-detail-close {
+    color: #5F6B7A;
+}
+
+.kanban-column-progress {
+    background: #E5E7EB;
+    border-radius: 999px;
+    height: 4px;
+    margin: 0 14px 14px;
+}
+
+.kanban-color-primary .kanban-column-progress,
+.kanban-color-success .kanban-column-progress {
+    background: #22C55E;
+}
+
+.kanban-color-warning .kanban-column-progress {
+    background: #F59E0B;
+}
+
+.kanban-color-error .kanban-column-progress {
+    background: #EF4444;
+}
+
+.kanban-color-contrast .kanban-column-progress {
+    background: #667085;
+}
+
+.kanban-cards {
+    box-sizing: border-box;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 10px 14px;
+}
+
+.kanban-card {
+    background: #F8FAFC;
+    border: 1px solid #D8DEE8;
+    border-radius: 8px;
+    box-sizing: border-box;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 12px;
+    transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.kanban-card:hover {
+    background: #FFFFFF;
+    border-color: #C6CEDA;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.kanban-card:focus-visible {
+    outline: 3px solid rgba(0, 150, 137, 0.28);
+    outline-offset: 2px;
+}
+
+.kanban-card-header {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    min-width: 0;
+}
+
+.kanban-avatar {
+    align-items: center;
+    background: #FFD8A8;
+    border-radius: 999px;
+    color: #7C2D12;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 13px;
+    font-weight: 700;
+    height: 38px;
+    justify-content: center;
+    width: 38px;
+}
+
+.kanban-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.kanban-card-primary,
+.kanban-card-title {
+    color: #2F3A4A;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.kanban-card-secondary {
+    color: #667085;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kanban-card-title {
+    display: block;
+}
+
+.kanban-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.kanban-tag {
+    background: #E9EDF3;
+    border-radius: 999px;
+    color: #344054;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 7px 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kanban-empty-state {
+    align-items: center;
+    box-sizing: border-box;
+    color: #98A2B3;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 360px;
+    padding: 24px 10px;
+    text-align: center;
+}
+
+.kanban-empty-illustration {
+    align-items: center;
+    border: 1px solid #D7DDE6;
+    border-radius: 999px;
+    color: #CBD5E1;
+    display: inline-flex;
+    height: 64px;
+    justify-content: center;
+    margin-bottom: 18px;
+    width: 64px;
+}
+
+.kanban-empty-illustration vaadin-icon {
+    --vaadin-icon-size: 30px;
+}
+
+.kanban-empty-title {
+    color: #202939;
+    font-size: 16px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+
+.kanban-empty-text {
+    color: #98A2B3;
+    font-size: 14px;
+    margin-bottom: 18px;
+}
+
+.pipeline-detail {
+    background: #FFFFFF;
+    box-sizing: border-box;
+    height: 100%;
+    overflow: auto;
+    padding: 20px;
+}
+
+.pipeline-detail-header {
+    align-items: flex-start;
+    border-bottom: 1px solid #E4E7EC;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding-bottom: 16px;
+}
+
+.pipeline-detail-header h3 {
+    color: #111827;
+    font-size: 18px;
+    line-height: 1.3;
+    margin: 0 0 10px;
+}
+
+.pipeline-detail-status {
+    border-radius: 999px;
+    color: #FFFFFF;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 7px 10px;
+}
+
+.pipeline-detail-status.kanban-color-primary,
+.pipeline-detail-status.kanban-color-success {
+    background: #009689;
+}
+
+.pipeline-detail-status.kanban-color-warning {
+    background: #D97706;
+}
+
+.pipeline-detail-status.kanban-color-error {
+    background: #DC2626;
+}
+
+.pipeline-detail-status.kanban-color-default,
+.pipeline-detail-status.kanban-color-contrast {
+    background: #475467;
+}
+
+.pipeline-detail-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 16px;
+}
+
+.pipeline-detail-row,
+.pipeline-detail-section {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.pipeline-detail-label {
+    color: #667085;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.pipeline-detail-value,
+.pipeline-detail-text {
+    color: #273142;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.pipeline-detail-text {
+    margin: 0;
+}
+
+.pipeline-detail-actions {
+    align-items: center;
+    flex: 0 0 auto;
+}
+
+.pipeline-detail-edit {
+    color: #008F83;
+}
+
+.activity-timeline {
+    border-top: 1px solid #E4E7EC;
+    margin-top: 2px;
+    padding-top: 14px;
+}
+
+.activity-timeline-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.activity-timeline-title {
+    color: #111827;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.activity-timeline-count {
+    align-items: center;
+    background: #EEF2F6;
+    border-radius: 999px;
+    color: #475467;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 800;
+    justify-content: center;
+    line-height: 1;
+    min-width: 24px;
+    padding: 6px 8px;
+}
+
+.activity-timeline-empty {
+    background: #F8FAFC;
+    border: 1px dashed #CBD5E1;
+    border-radius: 8px;
+    box-sizing: border-box;
+    color: #667085;
+    display: block;
+    font-size: 13px;
+    padding: 14px;
+    text-align: center;
+}
+
+.activity-timeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.activity-timeline-item {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 14px minmax(0, 1fr);
+    position: relative;
+}
+
+.activity-timeline-item:not(:last-child)::before {
+    background: #E4E7EC;
+    bottom: -12px;
+    content: "";
+    left: 6px;
+    position: absolute;
+    top: 17px;
+    width: 2px;
+}
+
+.activity-timeline-marker {
+    border-radius: 999px;
+    height: 10px;
+    margin-top: 5px;
+    position: relative;
+    width: 10px;
+    z-index: 1;
+}
+
+.activity-timeline-marker.kanban-color-primary,
+.activity-timeline-marker.kanban-color-success {
+    background: #009689;
+}
+
+.activity-timeline-marker.kanban-color-warning {
+    background: #D97706;
+}
+
+.activity-timeline-marker.kanban-color-error {
+    background: #DC2626;
+}
+
+.activity-timeline-marker.kanban-color-default,
+.activity-timeline-marker.kanban-color-contrast {
+    background: #475467;
+}
+
+.activity-timeline-content {
+    min-width: 0;
+}
+
+.activity-timeline-row {
+    align-items: flex-start;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.activity-timeline-subject {
+    color: #273142;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.35;
+    min-width: 0;
+}
+
+.activity-timeline-badge {
+    border-radius: 999px;
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    max-width: 128px;
+    overflow: hidden;
+    padding: 6px 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.activity-timeline-badge.kanban-color-primary,
+.activity-timeline-badge.kanban-color-success {
+    background: #DFF7F3;
+    color: #00796F;
+}
+
+.activity-timeline-badge.kanban-color-warning {
+    background: #FEF3C7;
+    color: #92400E;
+}
+
+.activity-timeline-badge.kanban-color-error {
+    background: #FEE2E2;
+    color: #B91C1C;
+}
+
+.activity-timeline-badge.kanban-color-default,
+.activity-timeline-badge.kanban-color-contrast {
+    background: #EEF2F6;
+    color: #475467;
+}
+
+.activity-timeline-meta {
+    color: #667085;
+    display: block;
+    font-size: 12px;
+    line-height: 1.35;
+    margin-top: 3px;
+}
+
+.activity-timeline-description {
+    color: #475467;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 6px 0 0;
+}
+
+.pipeline-status-control {
+    width: 100%;
+    --vaadin-input-field-height: 36px;
+}
+
+.lead-conversion-panel {
+    background: #F8FAFC;
+    border: 1px solid #D8DEE8;
+    border-radius: 8px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+}
+
+.lead-conversion-label {
+    color: #10233C;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.lead-conversion-text {
+    color: #667085;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.lead-conversion-button {
+    margin-top: 2px;
+    width: max-content;
+}
+
+.pipeline-form-detail {
+    background: #FFFFFF;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    height: 100%;
+    overflow: hidden;
+    padding: 0;
+}
+
+.pipeline-form-detail .pipeline-detail-header {
+    flex: 0 0 auto;
+    padding: 18px 18px 14px;
+}
+
+.pipeline-form-subtitle {
+    color: #667085;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.pipeline-form-detail vaadin-text-field,
+.pipeline-form-detail vaadin-email-field,
+.pipeline-form-detail vaadin-text-area,
+.pipeline-form-detail vaadin-combo-box {
+    width: 100%;
+    --vaadin-input-field-height: 36px;
+}
+
+.pipeline-form-body {
+    box-sizing: border-box;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 18px;
+}
+
+.pipeline-form-section {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    margin: 4px 0 0;
+}
+
+.pipeline-form-section:first-child {
+    margin-top: 0;
+}
+
+.pipeline-form-section hr {
+    border: 0;
+    border-top: 1px solid #E4E7EC;
+    flex: 1 1 auto;
+    margin: 0;
+}
+
+.pipeline-form-section-title {
+    color: #667085;
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pipeline-form-actions {
+    align-items: center;
+    background: #FFFFFF;
+    border-top: 1px solid #E4E7EC;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding: 14px 18px;
+}
+
+.pipeline-combo-action-row {
+    align-items: end;
+    gap: 8px;
+}
+
+.pipeline-inline-create-button {
+    flex: 0 0 auto;
+    height: 36px;
+    margin-bottom: 2px;
+    min-width: 36px;
+    width: 36px;
+}
+
+.quick-create-dialog {
+    box-sizing: border-box;
+    width: min(420px, calc(100vw - 32px));
+}
+
+.quick-create-dialog vaadin-text-field,
+.quick-create-dialog vaadin-email-field,
+.quick-create-dialog vaadin-combo-box {
+    width: 100%;
+    --vaadin-input-field-height: 36px;
+}
+
+.quick-create-header {
+    align-items: flex-start;
+    border-bottom: 1px solid #E4E7EC;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+}
+
+.quick-create-header h3 {
+    color: #111827;
+    font-size: 17px;
+    line-height: 1.3;
+    margin: 0;
+}
+
+.contact-view {
+    background: #FFFFFF;
+}
+
+.contact-tabs {
+    border-bottom: 0;
+    box-sizing: border-box;
+    margin: 0 24px 10px;
+    max-width: max-content;
+    padding: 3px;
+    background: #F1F3F5;
+    border-radius: 10px;
+}
+
+.contact-tab-content {
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+}
+
+.contact-tab-content > * {
+    height: 100%;
+    width: 100%;
+}
+
+.contact-master-detail {
+    height: 100%;
+    width: 100%;
+}
+
+.contact-master {
+    box-sizing: border-box;
+    min-height: 0;
+    padding: 0 24px 18px;
+}
+
+.contact-master-toolbar {
+    align-items: center;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0 14px;
+    width: 100%;
+}
+
+.contact-master-title {
+    color: #273142;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.contact-grid {
+    border: 1px solid #D8DEE8;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.contact-grid::part(header-cell) {
+    background: #F8FAFC;
+    color: #344054;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.contact-grid::part(body-cell) {
+    font-size: 13px;
+}
+
+.contact-detail {
+    background: #FFFFFF;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 100%;
+    overflow: auto;
+    padding: 18px;
+}
+
+.contact-detail-title {
+    border-bottom: 1px solid #E4E7EC;
+    color: #111827;
+    font-size: 17px;
+    line-height: 1.3;
+    margin: 0 0 4px;
+    padding-bottom: 12px;
+}
+
+.contact-detail vaadin-text-field,
+.contact-detail vaadin-email-field,
+.contact-detail vaadin-text-area,
+.contact-detail vaadin-combo-box {
+    width: 100%;
+    --vaadin-input-field-height: 36px;
+}
+
+.contact-form-actions {
+    border-top: 1px solid #E4E7EC;
+    margin-top: 6px;
+    padding-top: 14px;
+}
+
+.settings-role-group {
+    border: 1px solid #E4E7EC;
+    border-radius: 8px;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    width: 100%;
+}
+
+.settings-form-hint {
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.35;
+    margin: -4px 0 2px;
+}
+
+.dashboard-view {
+    background: #F6F8FA;
+    box-sizing: border-box;
+    gap: 16px;
+    overflow: auto;
+    padding: 18px 24px 24px;
+}
+
+.dashboard-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 14px;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.dashboard-title-group h2 {
+    color: #111827;
+    font-size: 22px;
+    line-height: 1.2;
+    margin: 0;
+}
+
+.dashboard-title-group p {
+    color: #667085;
+    font-size: 13px;
+    margin: 4px 0 0;
+}
+
+.dashboard-date {
+    background: #FFFFFF;
+    border: 1px solid #D8DEE8;
+    border-radius: 8px;
+    color: #344054;
+    flex: 0 0 auto;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 10px 12px;
+}
+
+.dashboard-metrics {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+}
+
+.dashboard-card {
+    background: #FFFFFF;
+    border: 1px solid #D8DEE8;
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+.dashboard-metric-card {
+    align-items: flex-start;
+    display: flex;
+    gap: 12px;
+    min-height: 118px;
+    padding: 16px;
+}
+
+.dashboard-metric-icon {
+    align-items: center;
+    border-radius: 8px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 38px;
+    justify-content: center;
+    width: 38px;
+}
+
+.dashboard-metric-icon vaadin-icon {
+    --vaadin-icon-size: 20px;
+}
+
+.dashboard-tone-lead .dashboard-metric-icon {
+    background: #E0F2FE;
+    color: #0369A1;
+}
+
+.dashboard-tone-opportunity .dashboard-metric-icon {
+    background: #EDE9FE;
+    color: #6D28D9;
+}
+
+.dashboard-tone-pipeline .dashboard-metric-icon {
+    background: #DCFCE7;
+    color: #15803D;
+}
+
+.dashboard-tone-contact .dashboard-metric-icon {
+    background: #FFF7ED;
+    color: #C2410C;
+}
+
+.dashboard-metric-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dashboard-metric-label {
+    color: #667085;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.dashboard-metric-value {
+    color: #111827;
+    font-size: 23px;
+    font-weight: 800;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+}
+
+.dashboard-metric-caption {
+    color: #667085;
+    font-size: 13px;
+    line-height: 1.3;
+}
+
+.dashboard-main-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+    width: 100%;
+}
+
+.dashboard-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.dashboard-chart-card,
+.dashboard-funnel-card,
+.dashboard-list-card {
+    padding: 16px;
+}
+
+.dashboard-card-title {
+    color: #111827;
+    font-size: 16px;
+    line-height: 1.25;
+    margin: 0 0 14px;
+}
+
+.dashboard-chart-canvas-wrap {
+    height: 260px;
+    min-height: 260px;
+    position: relative;
+    width: 100%;
+}
+
+.dashboard-chart-canvas-wrap canvas {
+    height: 100% !important;
+    width: 100% !important;
+}
+
+.dashboard-chart-error {
+    align-items: center;
+    background: #F8FAFC;
+    border: 1px dashed #CBD5E1;
+    border-radius: 8px;
+    display: flex;
+    min-height: 220px;
+    justify-content: center;
+}
+
+.dashboard-chart-error::after {
+    color: #667085;
+    content: "Chart failed to load";
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.dashboard-funnel,
+.dashboard-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dashboard-funnel-row {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.dashboard-funnel-meta {
+    align-items: center;
+    color: #344054;
+    display: flex;
+    font-size: 13px;
+    font-weight: 700;
+    justify-content: space-between;
+    min-width: 0;
+}
+
+.dashboard-funnel-meta span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-funnel-meta span:last-child {
+    color: #667085;
+    flex: 0 0 auto;
+    font-weight: 800;
+}
+
+.dashboard-funnel-track {
+    background: #EEF2F6;
+    border-radius: 999px;
+    height: 10px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.dashboard-funnel-fill {
+    border-radius: inherit;
+    height: 100%;
+    min-width: 0;
+    transition: width 180ms ease;
+}
+
+.dashboard-funnel-track {
+    height: 12px;
+}
+
+.dashboard-list-row,
+.dashboard-opportunity-row {
+    align-items: center;
+    border-bottom: 1px solid #EEF2F6;
+    display: flex;
+    gap: 12px;
+    min-width: 0;
+    padding-bottom: 12px;
+}
+
+.dashboard-list-row:last-child,
+.dashboard-opportunity-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.dashboard-list-marker {
+    background: #009689;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    height: 9px;
+    width: 9px;
+}
+
+.dashboard-list-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.dashboard-list-title {
+    color: #273142;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-list-meta {
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-list-date {
+    color: #667085;
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.dashboard-opportunity-side {
+    align-items: flex-end;
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dashboard-stage-badge {
+    border-radius: 999px;
+    color: #FFFFFF;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    max-width: 148px;
+    overflow: hidden;
+    padding: 6px 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-stage-badge.kanban-color-primary,
+.dashboard-stage-badge.kanban-color-success {
+    background: #009689;
+}
+
+.dashboard-stage-badge.kanban-color-warning {
+    background: #D97706;
+}
+
+.dashboard-stage-badge.kanban-color-error {
+    background: #DC2626;
+}
+
+.dashboard-stage-badge.kanban-color-contrast,
+.dashboard-stage-badge.kanban-color-default {
+    background: #475467;
+}
+
+.dashboard-empty {
+    align-items: center;
+    background: #F8FAFC;
+    border: 1px dashed #CBD5E1;
+    border-radius: 8px;
+    color: #667085;
+    display: flex;
+    font-size: 13px;
+    justify-content: center;
+    min-height: 92px;
+    padding: 16px;
+    text-align: center;
+}
+
+@media (max-width: 1100px) {
+    .dashboard-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-main-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 700px) {
+    .pipeline-header {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .pipeline-header-actions {
+        align-items: stretch;
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .pipeline-search-field {
+        width: 100%;
+    }
+
+    .dashboard-view {
+        padding: 14px;
+    }
+
+    .dashboard-header,
+    .dashboard-list-row,
+    .dashboard-opportunity-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .dashboard-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-opportunity-side {
+        align-items: flex-start;
+    }
+}
