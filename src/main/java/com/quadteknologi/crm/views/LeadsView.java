@@ -1,6 +1,7 @@
 package com.quadteknologi.crm.views;
 
 import com.quadteknologi.crm.domain.entity.Lead;
+import com.quadteknologi.crm.domain.entity.LeadItem;
 import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Company;
@@ -15,6 +16,7 @@ import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
+import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
@@ -29,6 +31,8 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.EmailField;
+import com.vaadin.flow.component.textfield.BigDecimalField;
+import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
@@ -40,6 +44,8 @@ import com.vaadin.flow.router.QueryParameters;
 import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.RolesAllowed;
 
+import java.math.BigDecimal;
+import java.text.NumberFormat;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -55,6 +61,7 @@ import java.util.Optional;
 public class LeadsView extends VerticalLayout {
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
+    private static final NumberFormat CURRENCY_FORMAT = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
     private static final List<String> SOURCE_OPTIONS = List.of("Email", "Web", "Phone", "Direct");
 
     private final LeadService leadService;
@@ -149,6 +156,7 @@ public class LeadsView extends VerticalLayout {
                 editing);
 
         List<OptionValue> statuses = leadService.findPipelineStatuses();
+        List<OptionValue> productTypes = leadService.findProductTypes();
         List<Company> companies = new ArrayList<>(leadService.findCompanies());
         List<Person> persons = new ArrayList<>(leadService.findPersons());
         if (editing) {
@@ -231,17 +239,32 @@ public class LeadsView extends VerticalLayout {
         notes.setMinHeight("92px");
         TextArea initialActivityNote = new TextArea(editing ? "Change Note" : "Initial Activity Note");
         initialActivityNote.setMinHeight("92px");
+        Component itemsEditor = createLeadItemsEditor(request.getItems(), productTypes);
 
-        binder.forField(title).asRequired("Lead title is required").bind(
-                LeadService.CreateLeadRequest::getTitle,
-                LeadService.CreateLeadRequest::setTitle);
-        binder.forField(status).asRequired("Status is required").bind(
-                LeadService.CreateLeadRequest::getStatus,
-                LeadService.CreateLeadRequest::setStatus);
-        binder.bind(company, LeadService.CreateLeadRequest::getCompany, LeadService.CreateLeadRequest::setCompany);
-        binder.bind(person, LeadService.CreateLeadRequest::getPerson, LeadService.CreateLeadRequest::setPerson);
-        binder.bind(source, LeadService.CreateLeadRequest::getSource, LeadService.CreateLeadRequest::setSource);
-        binder.bind(assignedTo, LeadService.CreateLeadRequest::getAssignedTo, LeadService.CreateLeadRequest::setAssignedTo);
+        binder.forField(title)
+                .asRequired("Lead title is required")
+                .bind(LeadService.CreateLeadRequest::getTitle, LeadService.CreateLeadRequest::setTitle);
+
+        binder.forField(status)
+                .asRequired("Status is required")
+                .bind(LeadService.CreateLeadRequest::getStatus, LeadService.CreateLeadRequest::setStatus);
+
+        binder.forField(company)
+                .asRequired("Company is required")
+                .bind(LeadService.CreateLeadRequest::getCompany, LeadService.CreateLeadRequest::setCompany);
+
+        binder.forField(person)
+                .asRequired("Person is required")
+                .bind(LeadService.CreateLeadRequest::getPerson, LeadService.CreateLeadRequest::setPerson);
+
+        binder.forField(source)
+                .asRequired("Source is required")
+                .bind(LeadService.CreateLeadRequest::getSource, LeadService.CreateLeadRequest::setSource);
+
+        binder.forField(assignedTo)
+                .asRequired("Assigned To is required")
+                .bind(LeadService.CreateLeadRequest::getAssignedTo, LeadService.CreateLeadRequest::setAssignedTo);
+
         binder.bind(description, LeadService.CreateLeadRequest::getDescription, LeadService.CreateLeadRequest::setDescription);
         binder.bind(notes, LeadService.CreateLeadRequest::getNotes, LeadService.CreateLeadRequest::setNotes);
         binder.bind(initialActivityNote, LeadService.CreateLeadRequest::getInitialActivityNote, LeadService.CreateLeadRequest::setInitialActivityNote);
@@ -261,6 +284,8 @@ public class LeadsView extends VerticalLayout {
                 sectionDivider("Details"),
                 description,
                 notes,
+                sectionDivider("Items"),
+                itemsEditor,
                 sectionDivider("Activity"),
                 initialActivityNote);
 
@@ -281,7 +306,93 @@ public class LeadsView extends VerticalLayout {
         request.setAssignedTo(lead.getAssignedTo());
         request.setDescription(lead.getDescription());
         request.setNotes(lead.getNotes());
+        request.setItems(leadService.findLeadItems(lead.getId())
+                .stream()
+                .map(this::createItemRequestFromLeadItem)
+                .toList());
         return request;
+    }
+
+    private LeadService.LeadItemRequest createItemRequestFromLeadItem(LeadItem item) {
+        LeadService.LeadItemRequest request = new LeadService.LeadItemRequest();
+        request.setProductType(item.getProductType());
+        request.setItemName(item.getItemName());
+        request.setDescription(item.getDescription());
+        request.setQuantity(item.getQuantity());
+        request.setEstimatedUnitPrice(item.getEstimatedUnitPrice());
+        request.setNotes(item.getNotes());
+        return request;
+    }
+
+    private Component createLeadItemsEditor(List<LeadService.LeadItemRequest> items, List<OptionValue> productTypes) {
+        Div editor = new Div();
+        editor.addClassName("sales-items-editor");
+
+        Div rows = new Div();
+        rows.addClassName("sales-items-editor-rows");
+
+        Runnable[] refresh = new Runnable[1];
+        refresh[0] = () -> {
+            rows.removeAll();
+            for (LeadService.LeadItemRequest item : items) {
+                rows.add(createLeadItemRow(item, items, productTypes, refresh[0]));
+            }
+        };
+
+        Button add = new Button("Add Item", VaadinIcon.PLUS.create(), event -> {
+            items.add(new LeadService.LeadItemRequest());
+            refresh[0].run();
+        });
+        add.addClassName("sales-items-add");
+
+        refresh[0].run();
+        editor.add(rows, add);
+        return editor;
+    }
+
+    private Component createLeadItemRow(LeadService.LeadItemRequest item, List<LeadService.LeadItemRequest> items,
+            List<OptionValue> productTypes, Runnable refresh) {
+        Div row = new Div();
+        row.addClassName("sales-item-row");
+
+        ComboBox<OptionValue> productType = new ComboBox<>("Product Type");
+        productType.setItems(productTypes);
+        productType.setItemLabelGenerator(OptionValue::getName);
+        OptionValue selectedProductType = findOptionByCode(productTypes,
+                item.getProductType() == null ? null : item.getProductType().getCode());
+        item.setProductType(selectedProductType);
+        productType.setValue(selectedProductType);
+        productType.addValueChangeListener(event -> item.setProductType(event.getValue()));
+
+        TextField itemName = new TextField("Item Name");
+        itemName.setValue(valueOrEmpty(item.getItemName()));
+        itemName.addValueChangeListener(event -> item.setItemName(event.getValue()));
+
+        IntegerField quantity = new IntegerField("Qty");
+        quantity.setMin(1);
+        quantity.setValue(item.getQuantity());
+        quantity.addValueChangeListener(event -> item.setQuantity(event.getValue()));
+
+        BigDecimalField unitPrice = new BigDecimalField("Estimated Unit Price");
+        unitPrice.setPrefixComponent(new Span("Rp"));
+        unitPrice.setValue(item.getEstimatedUnitPrice());
+        unitPrice.getElement().setAttribute("inputmode", "decimal");
+        unitPrice.addValueChangeListener(event -> item.setEstimatedUnitPrice(event.getValue()));
+
+        TextArea notes = new TextArea("Notes");
+        notes.setValue(valueOrEmpty(item.getNotes()));
+        notes.setMinHeight("76px");
+        notes.addValueChangeListener(event -> item.setNotes(event.getValue()));
+
+        Button remove = new Button(VaadinIcon.TRASH.create(), event -> {
+            items.remove(item);
+            refresh.run();
+        });
+        remove.addClassName("sales-item-remove");
+        remove.getElement().setAttribute("aria-label", "Remove item");
+
+        row.add(productType, itemName, quantity, unitPrice, notes, remove);
+        return row;
     }
 
     private HorizontalLayout fieldActionRow(Component field, Button action) {
@@ -305,11 +416,26 @@ public class LeadsView extends VerticalLayout {
         TextField phone = phoneField("Phone");
         TextField city = new TextField("City");
 
-        binder.forField(name).asRequired("Name is required").bind(Company::getName, Company::setName);
-        binder.bind(industry, Company::getIndustry, Company::setIndustry);
-        binder.bind(email, Company::getEmail, Company::setEmail);
-        binder.bind(phone, Company::getPhone, Company::setPhone);
-        binder.bind(city, Company::getCity, Company::setCity);
+        binder.forField(name)
+                .asRequired("Name is required")
+                .bind(Company::getName, Company::setName);
+
+        binder.forField(industry)
+                .asRequired("Industry is required")
+                .bind(Company::getIndustry, Company::setIndustry);
+
+        binder.forField(email)
+                .asRequired("Email is required")
+                .bind(Company::getEmail, Company::setEmail);
+
+        binder.forField(phone)
+                .asRequired("Phone is required")
+                .bind(Company::getPhone, Company::setPhone);
+
+        binder.forField(city)
+                .asRequired("City is required")
+                .bind(Company::getCity, Company::setCity);
+
         binder.readBean(company);
 
         Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
@@ -350,11 +476,24 @@ public class LeadsView extends VerticalLayout {
         TextField phone = phoneField("Phone");
         TextField whatsapp = phoneField("WhatsApp");
 
-        binder.forField(fullName).asRequired("Full name is required").bind(Person::getFullName, Person::setFullName);
-        binder.bind(company, Person::getCompany, Person::setCompany);
-        binder.bind(email, Person::getEmail, Person::setEmail);
-        binder.bind(phone, Person::getPhone, Person::setPhone);
+        binder.forField(fullName)
+                .asRequired("Full name is required")
+                .bind(Person::getFullName, Person::setFullName);
+
+        binder.forField(company)
+                .asRequired("Company name is required")
+                .bind(Person::getCompany, Person::setCompany);
+
+        binder.forField(email)
+                .asRequired("Email is required")
+                .bind(Person::getEmail, Person::setEmail);
+
+        binder.forField(phone)
+                .asRequired("Phone is required")
+                .bind(Person::getPhone, Person::setPhone);
+
         binder.bind(whatsapp, Person::getWhatsapp, Person::setWhatsapp);
+
         binder.readBean(person);
 
         Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
@@ -456,6 +595,8 @@ public class LeadsView extends VerticalLayout {
                 kanbanBoard.setDetail(createLeadDetail(savedLead));
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
             }
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
@@ -569,6 +710,7 @@ public class LeadsView extends VerticalLayout {
                 detailRow("Source", valueOrDash(lead.getSource())),
                 detailRow("Assigned to", lead.getAssignedTo() == null ? "-" : lead.getAssignedTo().getFullName()),
                 detailRow("Created", lead.getCreatedAt() == null ? "-" : lead.getCreatedAt().format(DATE_FORMAT)),
+                detailItemsSection("Items", leadService.findLeadItems(lead.getId())),
                 detailSection("Description", lead.getDescription()),
                 detailSection("Notes", lead.getNotes()),
                 new ActivityTimeline(leadService.findActivities(lead.getId())));
@@ -617,7 +759,7 @@ public class LeadsView extends VerticalLayout {
         text.addClassName("lead-conversion-text");
 
         Button action = opportunity == null
-                ? new Button("Create Opportunity", VaadinIcon.TRENDING_UP.create(), event -> convertLeadToOpportunity(lead))
+                ? new Button("Create Opportunity", VaadinIcon.TRENDING_UP.create(), event -> openConvertLeadDialog(lead))
                 : new Button("Open Opportunity", VaadinIcon.EXTERNAL_LINK.create(),
                         event -> navigateToOpportunity(opportunity));
         action.addClassName("lead-conversion-button");
@@ -627,14 +769,58 @@ public class LeadsView extends VerticalLayout {
         return panel;
     }
 
-    private void convertLeadToOpportunity(Lead lead) {
-        try {
-            Opportunity opportunity = leadService.createOpportunityFromLead(lead.getId());
-            showSuccess("Opportunity created from lead");
-            navigateToOpportunity(opportunity);
-        } catch (IllegalStateException exception) {
-            showError(exception.getMessage());
-        }
+    private void openConvertLeadDialog(Lead lead) {
+        LeadService.ConvertLeadRequest request = new LeadService.ConvertLeadRequest();
+        Binder<LeadService.ConvertLeadRequest> binder = new Binder<>(LeadService.ConvertLeadRequest.class);
+        Dialog dialog = quickCreateDialog("Create Opportunity");
+
+        BigDecimalField estimatedAmount = new BigDecimalField("Estimated Amount");
+        estimatedAmount.setPrefixComponent(new Span("Rp"));
+        estimatedAmount.setClearButtonVisible(true);
+        estimatedAmount.setPlaceholder("0");
+        estimatedAmount.getElement().setAttribute("inputmode", "decimal");
+
+        IntegerField probability = new IntegerField("Probability");
+        probability.setMin(0);
+        probability.setMax(100);
+        probability.setSuffixComponent(new Span("%"));
+
+        DatePicker expectedClose = new DatePicker("Expected Close");
+
+        binder.forField(estimatedAmount)
+                .asRequired("Estimated Amount is required")
+                .bind(LeadService.ConvertLeadRequest::getEstimatedAmount,
+                        LeadService.ConvertLeadRequest::setEstimatedAmount);
+
+        binder.forField(probability)
+                .asRequired("Probability is required")
+                .bind(LeadService.ConvertLeadRequest::getProbability,
+                        LeadService.ConvertLeadRequest::setProbability);
+
+        binder.forField(expectedClose)
+                .asRequired("Expected Close is required")
+                .bind(LeadService.ConvertLeadRequest::getExpectedCloseDate,
+                        LeadService.ConvertLeadRequest::setExpectedCloseDate);
+
+        binder.readBean(request);
+
+        Button save = new Button("Create Opportunity", VaadinIcon.TRENDING_UP.create(), event -> {
+            try {
+                binder.writeBean(request);
+                Opportunity opportunity = leadService.createOpportunityFromLead(lead.getId(), request);
+                showSuccess("Opportunity created from lead");
+                dialog.close();
+                navigateToOpportunity(opportunity);
+            } catch (ValidationException exception) {
+                showError("Please complete required fields");
+            } catch (IllegalStateException exception) {
+                showError(exception.getMessage());
+            }
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        dialog.add(estimatedAmount, probability, expectedClose, dialogActions(save, dialog));
+        dialog.open();
     }
 
     private void navigateToOpportunity(Opportunity opportunity) {
@@ -661,6 +847,45 @@ public class LeadsView extends VerticalLayout {
         Paragraph paragraph = new Paragraph(valueOrDash(value));
         paragraph.addClassName("pipeline-detail-text");
         section.add(labelSpan, paragraph);
+        return section;
+    }
+
+    private Component detailItemsSection(String label, List<LeadItem> items) {
+        Div section = new Div();
+        section.addClassNames("pipeline-detail-section", "sales-items-detail");
+
+        Span labelSpan = new Span(label);
+        labelSpan.addClassName("pipeline-detail-label");
+        section.add(labelSpan);
+
+        if (items.isEmpty()) {
+            Paragraph empty = new Paragraph("-");
+            empty.addClassName("pipeline-detail-text");
+            section.add(empty);
+            return section;
+        }
+
+        items.forEach(item -> {
+            Div row = new Div();
+            row.addClassName("sales-item-detail-row");
+
+            Span name = new Span(item.getItemName());
+            name.addClassName("sales-item-detail-name");
+
+            Span meta = new Span(productTypeName(item.getProductType(), item.getProductTypeCode())
+                    + " | " + item.getQuantity()
+                    + " x " + formatAmountOrDash(item.getEstimatedUnitPrice())
+                    + " = " + formatAmountOrDash(item.getEstimatedTotal()));
+            meta.addClassName("sales-item-detail-meta");
+
+            row.add(name, meta);
+            if (item.getNotes() != null && !item.getNotes().isBlank()) {
+                Paragraph notes = new Paragraph(item.getNotes());
+                notes.addClassName("sales-item-detail-notes");
+                row.add(notes);
+            }
+            section.add(row);
+        });
         return section;
     }
 
@@ -708,6 +933,13 @@ public class LeadsView extends VerticalLayout {
                 .orElse(null);
     }
 
+    private OptionValue findOptionByCode(List<OptionValue> options, String code) {
+        return options.stream()
+                .filter(option -> Objects.equals(option.getCode(), code))
+                .findFirst()
+                .orElse(null);
+    }
+
     private String initials(String value) {
         if (value == null || value.isBlank()) {
             return "?";
@@ -725,6 +957,18 @@ public class LeadsView extends VerticalLayout {
 
     private String valueOrDash(String value) {
         return value == null || value.isBlank() ? "-" : value;
+    }
+
+    private String valueOrEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String formatAmountOrDash(BigDecimal amount) {
+        return amount == null ? "-" : CURRENCY_FORMAT.format(amount);
+    }
+
+    private String productTypeName(OptionValue productType, String fallbackCode) {
+        return productType == null ? valueOrDash(fallbackCode) : productType.getName();
     }
 
     private List<String> sourceOptions(String currentSource) {

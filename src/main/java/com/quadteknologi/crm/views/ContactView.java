@@ -4,6 +4,7 @@ import com.quadteknologi.crm.domain.entity.Company;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.ui.layout.MainLayout;
+import com.vaadin.componentfactory.addons.inputmask.InputMask;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
@@ -179,12 +180,28 @@ public class ContactView extends VerticalLayout {
         TextArea notes = new TextArea("Notes");
         notes.setMinHeight("110px");
 
-        binder.forField(fullName).asRequired("Full name is required").bind(Person::getFullName, Person::setFullName);
-        binder.bind(company, Person::getCompany, Person::setCompany);
-        binder.bind(jobTitle, Person::getJobTitle, Person::setJobTitle);
-        binder.bind(email, Person::getEmail, Person::setEmail);
-        binder.bind(phone, Person::getPhone, Person::setPhone);
+        binder.forField(fullName)
+                .asRequired("Full name is required")
+                .bind(Person::getFullName, Person::setFullName);
+
+        binder.forField(company)
+                .asRequired("Company name is required")
+                .bind(Person::getCompany, Person::setCompany);
+
+        binder.forField(jobTitle)
+                .asRequired("Job title is required")
+                .bind(Person::getJobTitle, Person::setJobTitle);
+
+        binder.forField(email)
+                .asRequired("Email is required")
+                .bind(Person::getEmail, Person::setEmail);
+
+        binder.forField(phone)
+                .asRequired("Phone is required")
+                .bind(Person::getPhone, Person::setPhone);
+
         binder.bind(whatsapp, Person::getWhatsapp, Person::setWhatsapp);
+
         binder.bind(notes, Person::getNotes, Person::setNotes);
         binder.readBean(person);
 
@@ -283,15 +300,41 @@ public class ContactView extends VerticalLayout {
         address.setMinHeight("90px");
         notes.setMinHeight("110px");
 
-        binder.forField(name).asRequired("Name is required").bind(Company::getName, Company::setName);
-        binder.bind(industry, Company::getIndustry, Company::setIndustry);
-        binder.bind(website, Company::getWebsite, Company::setWebsite);
-        binder.bind(email, Company::getEmail, Company::setEmail);
-        binder.bind(phone, Company::getPhone, Company::setPhone);
-        binder.bind(city, Company::getCity, Company::setCity);
-        binder.bind(province, Company::getProvince, Company::setProvince);
-        binder.bind(country, Company::getCountry, Company::setCountry);
-        binder.bind(address, Company::getAddress, Company::setAddress);
+        binder.forField(name)
+                .asRequired("Name is required")
+                .bind(Company::getName, Company::setName);
+
+        binder.forField(industry)
+                .asRequired("Industry is required")
+                .bind(Company::getIndustry, Company::setIndustry);
+
+        binder.forField(website)
+                .bind(Company::getWebsite, Company::setWebsite);
+
+        binder.forField(email)
+                .asRequired("Email is required")
+                .bind(Company::getEmail, Company::setEmail);
+
+        binder.forField(phone)
+                .asRequired("Phone is required")
+                .bind(Company::getPhone, Company::setPhone);
+
+        binder.forField(city)
+                .asRequired("City is required")
+                .bind(Company::getCity, Company::setCity);
+
+        binder.forField(province)
+                .asRequired("Province is required")
+                .bind(Company::getProvince, Company::setProvince);
+
+        binder.forField(country)
+                .asRequired("Country is required")
+                .bind(Company::getCountry, Company::setCountry);
+
+        binder.forField(address)
+                .asRequired("Address is required")
+                .bind(Company::getAddress, Company::setAddress);
+
         binder.bind(notes, Company::getNotes, Company::setNotes);
         binder.readBean(company);
 
@@ -370,6 +413,7 @@ public class ContactView extends VerticalLayout {
         field.setPlaceholder("+62 812 3456 7890");
         field.getElement().setAttribute("inputmode", "tel");
         field.getElement().setAttribute("autocomplete", "tel");
+        new InputMask("+000000000000000").extend(field);
         return field;
     }
 

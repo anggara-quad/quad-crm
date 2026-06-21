@@ -4,12 +4,15 @@ import com.quadteknologi.crm.domain.entity.Activity;
 import com.quadteknologi.crm.domain.entity.Company;
 import com.quadteknologi.crm.domain.entity.Lead;
 import com.quadteknologi.crm.domain.entity.Opportunity;
+import com.quadteknologi.crm.domain.entity.OpportunityItem;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.domain.repository.ActivityRepository;
 import com.quadteknologi.crm.domain.repository.CompanyRepository;
+import com.quadteknologi.crm.domain.repository.LeadItemRepository;
 import com.quadteknologi.crm.domain.repository.LeadRepository;
+import com.quadteknologi.crm.domain.repository.OpportunityItemRepository;
 import com.quadteknologi.crm.domain.repository.OpportunityRepository;
 import com.quadteknologi.crm.domain.repository.OptionValueRepository;
 import com.quadteknologi.crm.domain.repository.PersonRepository;
@@ -34,14 +37,17 @@ public class OpportunityService {
 
     private static final String OPPORTUNITY_STATUS_GROUP = "OPPORTUNITY_STATUS";
     private static final String LEAD_STATUS_GROUP = "LEAD_STATUS";
+    private static final String PRODUCT_TYPE_GROUP = "PRODUCT_TYPE";
     private static final String ACTIVITY_TYPE_GROUP = "ACTIVITY_TYPE";
     private static final String CREATED_ACTIVITY_TYPE = "CREATED";
     private static final String STATUS_CHANGE_ACTIVITY_TYPE = "STATUS_CHANGE";
 
     private final OptionValueRepository optionValueRepository;
     private final OpportunityRepository opportunityRepository;
+    private final OpportunityItemRepository opportunityItemRepository;
     private final ActivityRepository activityRepository;
     private final LeadRepository leadRepository;
+    private final LeadItemRepository leadItemRepository;
     private final CompanyRepository companyRepository;
     private final PersonRepository personRepository;
     private final UserRepository userRepository;
@@ -50,16 +56,20 @@ public class OpportunityService {
     public OpportunityService(
             OptionValueRepository optionValueRepository,
             OpportunityRepository opportunityRepository,
+            OpportunityItemRepository opportunityItemRepository,
             ActivityRepository activityRepository,
             LeadRepository leadRepository,
+            LeadItemRepository leadItemRepository,
             CompanyRepository companyRepository,
             PersonRepository personRepository,
             UserRepository userRepository,
             DataAccessService dataAccessService) {
         this.optionValueRepository = optionValueRepository;
         this.opportunityRepository = opportunityRepository;
+        this.opportunityItemRepository = opportunityItemRepository;
         this.activityRepository = activityRepository;
         this.leadRepository = leadRepository;
+        this.leadItemRepository = leadItemRepository;
         this.companyRepository = companyRepository;
         this.personRepository = personRepository;
         this.userRepository = userRepository;
@@ -84,6 +94,10 @@ public class OpportunityService {
                 .collect(Collectors.groupingBy(Opportunity::getStatusCode));
     }
 
+    public List<OptionValue> findProductTypes() {
+        return optionValueRepository.findByGroupCodeAndActiveTrueOrderBySortOrderAsc(PRODUCT_TYPE_GROUP);
+    }
+
     public OptionValue getDefaultPipelineStatus() {
         List<OptionValue> statuses = findPipelineStatuses();
         return statuses.stream()
@@ -101,6 +115,11 @@ public class OpportunityService {
     public List<Activity> findActivities(Long opportunityId) {
         Opportunity opportunity = findOpportunity(opportunityId);
         return activityRepository.findByOpportunityIdOrderByActivityDateDesc(opportunity.getId());
+    }
+
+    public List<OpportunityItem> findOpportunityItems(Long opportunityId) {
+        Opportunity opportunity = findOpportunity(opportunityId);
+        return opportunityItemRepository.findByOpportunityIdOrderBySortOrderAsc(opportunity.getId());
     }
 
     public List<Lead> findValidLeads() {
@@ -138,6 +157,11 @@ public class OpportunityService {
         applyRequest(opportunity, request);
         opportunity.setCreatedBy(dataAccessService.requireCurrentUserReference());
         Opportunity savedOpportunity = opportunityRepository.save(opportunity);
+        if (request.getItems().isEmpty() && savedOpportunity.getLead() != null) {
+            copyLeadItemsToOpportunity(savedOpportunity.getLead(), savedOpportunity);
+        } else {
+            replaceOpportunityItems(savedOpportunity, request.getItems());
+        }
         markLinkedLeadConverted(savedOpportunity);
         activityRepository.save(createCreatedActivity(savedOpportunity));
         return opportunityRepository.findById(savedOpportunity.getId()).orElse(savedOpportunity);
@@ -149,6 +173,7 @@ public class OpportunityService {
         String previousStatusCode = opportunity.getStatusCode();
         applyRequest(opportunity, request);
         Opportunity savedOpportunity = opportunityRepository.save(opportunity);
+        replaceOpportunityItems(savedOpportunity, request.getItems());
         markLinkedLeadConverted(savedOpportunity);
         if (!Objects.equals(previousStatusCode, savedOpportunity.getStatusCode())) {
             activityRepository.save(createStatusChangedActivity(savedOpportunity, previousStatusCode,
@@ -178,6 +203,101 @@ public class OpportunityService {
     private boolean isShownInPipeline(OptionValue status) {
         Object value = status.getMetadata() == null ? null : status.getMetadata().get("showInPipeline");
         return value == null || Boolean.TRUE.equals(value) || Objects.equals("true", String.valueOf(value));
+    }
+
+    private void replaceOpportunityItems(Opportunity opportunity, List<OpportunityItemRequest> requests) {
+        opportunityItemRepository.deleteByOpportunityId(opportunity.getId());
+        List<OpportunityItem> items = buildOpportunityItems(opportunity, requests);
+        if (!items.isEmpty()) {
+            opportunityItemRepository.saveAll(items);
+        }
+    }
+
+    private List<OpportunityItem> buildOpportunityItems(Opportunity opportunity, List<OpportunityItemRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return List.of();
+        }
+
+        int sortOrder = 0;
+        List<OpportunityItem> items = new java.util.ArrayList<>();
+        for (OpportunityItemRequest request : requests) {
+            if (isEmptyItem(request)) {
+                continue;
+            }
+            validateOpportunityItem(request);
+
+            BigDecimal unitPrice = nonNegativeAmount(request.getUnitPrice(), "Unit price");
+            OpportunityItem item = new OpportunityItem();
+            item.setOpportunity(opportunity);
+            item.setProductTypeGroupCode(PRODUCT_TYPE_GROUP);
+            item.setProductTypeCode(request.getProductType().getCode());
+            item.setItemName(trimToNull(request.getItemName()));
+            item.setDescription(trimToNull(request.getDescription()));
+            item.setQuantity(request.getQuantity());
+            item.setUnitPrice(unitPrice);
+            item.setTotalAmount(unitPrice.multiply(BigDecimal.valueOf(request.getQuantity())));
+            item.setNotes(trimToNull(request.getNotes()));
+            item.setSortOrder(sortOrder++);
+            items.add(item);
+        }
+        return items;
+    }
+
+    private void copyLeadItemsToOpportunity(Lead lead, Opportunity opportunity) {
+        List<OpportunityItem> opportunityItems = leadItemRepository.findByLeadIdOrderBySortOrderAsc(lead.getId())
+                .stream()
+                .map(leadItem -> {
+                    OpportunityItem opportunityItem = new OpportunityItem();
+                    opportunityItem.setOpportunity(opportunity);
+                    opportunityItem.setProductTypeGroupCode(PRODUCT_TYPE_GROUP);
+                    opportunityItem.setProductTypeCode(leadItem.getProductTypeCode());
+                    opportunityItem.setItemName(leadItem.getItemName());
+                    opportunityItem.setDescription(leadItem.getDescription());
+                    opportunityItem.setQuantity(leadItem.getQuantity());
+                    opportunityItem.setUnitPrice(leadItem.getEstimatedUnitPrice());
+                    opportunityItem.setTotalAmount(leadItem.getEstimatedTotal());
+                    opportunityItem.setNotes(leadItem.getNotes());
+                    opportunityItem.setSortOrder(leadItem.getSortOrder());
+                    return opportunityItem;
+                })
+                .toList();
+        if (!opportunityItems.isEmpty()) {
+            opportunityItemRepository.saveAll(opportunityItems);
+        }
+    }
+
+    private boolean isEmptyItem(OpportunityItemRequest request) {
+        return request == null
+                || (request.getProductType() == null
+                && trimToNull(request.getItemName()) == null
+                && request.getQuantity() == null
+                && request.getUnitPrice() == null
+                && trimToNull(request.getNotes()) == null);
+    }
+
+    private void validateOpportunityItem(OpportunityItemRequest request) {
+        validateProductType(request.getProductType());
+        if (trimToNull(request.getItemName()) == null) {
+            throw new IllegalArgumentException("Item name is required");
+        }
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new IllegalArgumentException("Quantity must be greater than zero");
+        }
+        nonNegativeAmount(request.getUnitPrice(), "Unit price");
+    }
+
+    private void validateProductType(OptionValue productType) {
+        if (productType == null || !PRODUCT_TYPE_GROUP.equals(productType.getGroupCode())) {
+            throw new IllegalArgumentException("Product type is required");
+        }
+    }
+
+    private BigDecimal nonNegativeAmount(BigDecimal amount, String label) {
+        BigDecimal value = amount == null ? BigDecimal.ZERO : amount;
+        if (value.signum() < 0) {
+            throw new IllegalArgumentException(label + " must not be negative");
+        }
+        return value;
     }
 
     private void applyRequest(Opportunity opportunity, OpportunityRequest request) {
@@ -358,6 +478,7 @@ public class OpportunityService {
         private User assignedTo;
         private String description;
         private String notes;
+        private List<OpportunityItemRequest> items = new java.util.ArrayList<>();
 
         public String getTitle() {
             return title;
@@ -437,6 +558,72 @@ public class OpportunityService {
 
         public void setDescription(String description) {
             this.description = description;
+        }
+
+        public String getNotes() {
+            return notes;
+        }
+
+        public void setNotes(String notes) {
+            this.notes = notes;
+        }
+
+        public List<OpportunityItemRequest> getItems() {
+            return items;
+        }
+
+        public void setItems(List<OpportunityItemRequest> items) {
+            this.items = items == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(items);
+        }
+    }
+
+    public static class OpportunityItemRequest {
+
+        private OptionValue productType;
+        private String itemName;
+        private String description;
+        private Integer quantity;
+        private BigDecimal unitPrice;
+        private String notes;
+
+        public OptionValue getProductType() {
+            return productType;
+        }
+
+        public void setProductType(OptionValue productType) {
+            this.productType = productType;
+        }
+
+        public String getItemName() {
+            return itemName;
+        }
+
+        public void setItemName(String itemName) {
+            this.itemName = itemName;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public void setDescription(String description) {
+            this.description = description;
+        }
+
+        public Integer getQuantity() {
+            return quantity;
+        }
+
+        public void setQuantity(Integer quantity) {
+            this.quantity = quantity;
+        }
+
+        public BigDecimal getUnitPrice() {
+            return unitPrice;
+        }
+
+        public void setUnitPrice(BigDecimal unitPrice) {
+            this.unitPrice = unitPrice;
         }
 
         public String getNotes() {

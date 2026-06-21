@@ -980,6 +980,77 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
     padding: 14px 18px;
 }
 
+.sales-items-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sales-items-editor-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sales-item-row {
+    border: 1px solid #E4E7EC;
+    border-radius: 8px;
+    box-sizing: border-box;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding: 10px;
+}
+
+.sales-item-row vaadin-combo-box,
+.sales-item-row vaadin-text-field,
+.sales-item-row vaadin-integer-field,
+.sales-item-row vaadin-big-decimal-field,
+.sales-item-row vaadin-text-area {
+    width: 100%;
+}
+
+.sales-item-row vaadin-text-area,
+.sales-item-row .sales-item-remove {
+    grid-column: 1 / -1;
+}
+
+.sales-item-remove {
+    justify-self: end;
+}
+
+.sales-items-add {
+    align-self: flex-start;
+}
+
+.sales-items-detail {
+    gap: 8px;
+}
+
+.sales-item-detail-row {
+    border: 1px solid #E4E7EC;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px;
+}
+
+.sales-item-detail-name {
+    color: #101828;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.sales-item-detail-meta,
+.sales-item-detail-notes {
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.35;
+    margin: 0;
+}
+
 .pipeline-combo-action-row {
     align-items: end;
     gap: 8px;

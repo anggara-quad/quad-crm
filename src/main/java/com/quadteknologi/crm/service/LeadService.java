@@ -3,13 +3,17 @@ package com.quadteknologi.crm.service;
 import com.quadteknologi.crm.domain.entity.Activity;
 import com.quadteknologi.crm.domain.entity.Company;
 import com.quadteknologi.crm.domain.entity.Lead;
+import com.quadteknologi.crm.domain.entity.LeadItem;
 import com.quadteknologi.crm.domain.entity.Opportunity;
+import com.quadteknologi.crm.domain.entity.OpportunityItem;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.domain.repository.ActivityRepository;
 import com.quadteknologi.crm.domain.repository.CompanyRepository;
+import com.quadteknologi.crm.domain.repository.LeadItemRepository;
 import com.quadteknologi.crm.domain.repository.LeadRepository;
+import com.quadteknologi.crm.domain.repository.OpportunityItemRepository;
 import com.quadteknologi.crm.domain.repository.OpportunityRepository;
 import com.quadteknologi.crm.domain.repository.OptionValueRepository;
 import com.quadteknologi.crm.domain.repository.PersonRepository;
@@ -18,6 +22,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +38,7 @@ public class LeadService {
 
     private static final String LEAD_STATUS_GROUP = "LEAD_STATUS";
     private static final String OPPORTUNITY_STATUS_GROUP = "OPPORTUNITY_STATUS";
+    private static final String PRODUCT_TYPE_GROUP = "PRODUCT_TYPE";
     private static final String ACTIVITY_TYPE_GROUP = "ACTIVITY_TYPE";
     private static final String CREATED_ACTIVITY_TYPE = "CREATED";
     private static final String STATUS_CHANGE_ACTIVITY_TYPE = "STATUS_CHANGE";
@@ -39,7 +46,9 @@ public class LeadService {
 
     private final OptionValueRepository optionValueRepository;
     private final LeadRepository leadRepository;
+    private final LeadItemRepository leadItemRepository;
     private final OpportunityRepository opportunityRepository;
+    private final OpportunityItemRepository opportunityItemRepository;
     private final ActivityRepository activityRepository;
     private final CompanyRepository companyRepository;
     private final PersonRepository personRepository;
@@ -49,7 +58,9 @@ public class LeadService {
     public LeadService(
             OptionValueRepository optionValueRepository,
             LeadRepository leadRepository,
+            LeadItemRepository leadItemRepository,
             OpportunityRepository opportunityRepository,
+            OpportunityItemRepository opportunityItemRepository,
             ActivityRepository activityRepository,
             CompanyRepository companyRepository,
             PersonRepository personRepository,
@@ -57,7 +68,9 @@ public class LeadService {
             DataAccessService dataAccessService) {
         this.optionValueRepository = optionValueRepository;
         this.leadRepository = leadRepository;
+        this.leadItemRepository = leadItemRepository;
         this.opportunityRepository = opportunityRepository;
+        this.opportunityItemRepository = opportunityItemRepository;
         this.activityRepository = activityRepository;
         this.companyRepository = companyRepository;
         this.personRepository = personRepository;
@@ -79,6 +92,10 @@ public class LeadService {
                 .stream()
                 .filter(this::isShownInPipeline)
                 .toList();
+    }
+
+    public List<OptionValue> findProductTypes() {
+        return optionValueRepository.findByGroupCodeAndActiveTrueOrderBySortOrderAsc(PRODUCT_TYPE_GROUP);
     }
 
     public Map<String, List<Lead>> findPipelineLeadsByStatus() {
@@ -147,6 +164,11 @@ public class LeadService {
         return opportunity;
     }
 
+    public List<LeadItem> findLeadItems(Long leadId) {
+        Lead lead = findLead(leadId);
+        return leadItemRepository.findByLeadIdOrderBySortOrderAsc(lead.getId());
+    }
+
     public List<Activity> findActivities(Long leadId) {
         Lead lead = findLead(leadId);
         return activityRepository.findByLeadIdOrderByActivityDateDesc(lead.getId());
@@ -177,6 +199,7 @@ public class LeadService {
         lead.setUpdatedBy(currentUser);
 
         Lead savedLead = leadRepository.save(lead);
+        replaceLeadItems(savedLead, request.getItems());
         activityRepository.save(createLeadCreatedActivity(savedLead, request));
         return leadRepository.findById(savedLead.getId()).orElse(savedLead);
     }
@@ -207,6 +230,7 @@ public class LeadService {
         lead.setUpdatedBy(currentUser);
 
         Lead savedLead = leadRepository.save(lead);
+        replaceLeadItems(savedLead, request.getItems());
         if (!Objects.equals(previousStatusCode, savedLead.getStatusCode())) {
             activityRepository.save(createStatusChangedActivity(savedLead, previousStatusCode,
                     savedLead.getStatusCode(), request.getInitialActivityNote()));
@@ -233,6 +257,11 @@ public class LeadService {
 
     @Transactional
     public Opportunity createOpportunityFromLead(Long leadId) {
+        return createOpportunityFromLead(leadId, new ConvertLeadRequest());
+    }
+
+    @Transactional
+    public Opportunity createOpportunityFromLead(Long leadId, ConvertLeadRequest request) {
         Lead lead = findLead(leadId);
         if (!"VALID".equals(lead.getStatusCode())) {
             throw new IllegalStateException("Only valid leads can be converted to opportunities.");
@@ -246,8 +275,10 @@ public class LeadService {
 
         OptionValue defaultStatus = getDefaultOpportunityPipelineStatus();
         String statusCode = defaultStatus == null ? "PRODUCT_SOLUTIONING" : defaultStatus.getCode();
-        Opportunity opportunity = buildOpportunityFromLead(lead, statusCode);
+        validateOpportunityConversion(lead, request);
+        Opportunity opportunity = buildOpportunityFromLead(lead, statusCode, request);
         Opportunity savedOpportunity = opportunityRepository.save(opportunity);
+        copyLeadItemsToOpportunity(lead, savedOpportunity);
 
         markLeadConverted(lead, savedOpportunity);
         activityRepository.save(createLeadConvertedActivity(lead, savedOpportunity));
@@ -300,7 +331,7 @@ public class LeadService {
         return userRepository.getReferenceById(request.getAssignedTo().getId());
     }
 
-    private Opportunity buildOpportunityFromLead(Lead lead, String statusCode) {
+    private Opportunity buildOpportunityFromLead(Lead lead, String statusCode, ConvertLeadRequest request) {
         Opportunity opportunity = new Opportunity();
         opportunity.setTitle(lead.getTitle());
         opportunity.setLead(lead);
@@ -308,6 +339,9 @@ public class LeadService {
         opportunity.setPerson(lead.getPerson());
         opportunity.setStatusGroupCode(OPPORTUNITY_STATUS_GROUP);
         opportunity.setStatusCode(statusCode);
+        opportunity.setEstimatedAmount(request.getEstimatedAmount());
+        opportunity.setProbability(request.getProbability());
+        opportunity.setExpectedCloseDate(request.getExpectedCloseDate());
         opportunity.setAssignedTo(lead.getAssignedTo());
         opportunity.setDescription(lead.getDescription());
         opportunity.setNotes(lead.getNotes());
@@ -315,6 +349,131 @@ public class LeadService {
         opportunity.setCreatedBy(currentUser);
         opportunity.setUpdatedBy(currentUser);
         return opportunity;
+    }
+
+    private void validateOpportunityConversion(Lead lead, ConvertLeadRequest request) {
+        if (trimToNull(lead.getTitle()) == null) {
+            throw new IllegalStateException("Opportunity title is required");
+        }
+        if (lead.getCompany() == null) {
+            throw new IllegalStateException("Company is required before creating an opportunity");
+        }
+        if (lead.getPerson() == null) {
+            throw new IllegalStateException("Person is required before creating an opportunity");
+        }
+        if (lead.getAssignedTo() == null) {
+            throw new IllegalStateException("Assigned To is required before creating an opportunity");
+        }
+        if (request == null || request.getEstimatedAmount() == null) {
+            throw new IllegalStateException("Estimated Amount is required before creating an opportunity");
+        }
+        if (request.getEstimatedAmount().signum() < 0) {
+            throw new IllegalStateException("Estimated Amount must not be negative");
+        }
+        if (request.getProbability() == null) {
+            throw new IllegalStateException("Probability is required before creating an opportunity");
+        }
+        if (request.getProbability() < 0 || request.getProbability() > 100) {
+            throw new IllegalStateException("Probability must be between 0 and 100");
+        }
+        if (request.getExpectedCloseDate() == null) {
+            throw new IllegalStateException("Expected Close is required before creating an opportunity");
+        }
+    }
+
+    private void replaceLeadItems(Lead lead, List<LeadItemRequest> requests) {
+        leadItemRepository.deleteByLeadId(lead.getId());
+        List<LeadItem> items = buildLeadItems(lead, requests);
+        if (!items.isEmpty()) {
+            leadItemRepository.saveAll(items);
+        }
+    }
+
+    private List<LeadItem> buildLeadItems(Lead lead, List<LeadItemRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return List.of();
+        }
+
+        int sortOrder = 0;
+        List<LeadItem> items = new java.util.ArrayList<>();
+        for (LeadItemRequest request : requests) {
+            if (isEmptyItem(request)) {
+                continue;
+            }
+            validateLeadItem(request);
+
+            BigDecimal unitPrice = nonNegativeAmount(request.getEstimatedUnitPrice(), "Estimated unit price");
+            LeadItem item = new LeadItem();
+            item.setLead(lead);
+            item.setProductTypeGroupCode(PRODUCT_TYPE_GROUP);
+            item.setProductTypeCode(request.getProductType().getCode());
+            item.setItemName(trimToNull(request.getItemName()));
+            item.setDescription(trimToNull(request.getDescription()));
+            item.setQuantity(request.getQuantity());
+            item.setEstimatedUnitPrice(unitPrice);
+            item.setEstimatedTotal(unitPrice.multiply(BigDecimal.valueOf(request.getQuantity())));
+            item.setNotes(trimToNull(request.getNotes()));
+            item.setSortOrder(sortOrder++);
+            items.add(item);
+        }
+        return items;
+    }
+
+    private void copyLeadItemsToOpportunity(Lead lead, Opportunity opportunity) {
+        List<OpportunityItem> opportunityItems = leadItemRepository.findByLeadIdOrderBySortOrderAsc(lead.getId())
+                .stream()
+                .map(leadItem -> {
+                    OpportunityItem opportunityItem = new OpportunityItem();
+                    opportunityItem.setOpportunity(opportunity);
+                    opportunityItem.setProductTypeGroupCode(PRODUCT_TYPE_GROUP);
+                    opportunityItem.setProductTypeCode(leadItem.getProductTypeCode());
+                    opportunityItem.setItemName(leadItem.getItemName());
+                    opportunityItem.setDescription(leadItem.getDescription());
+                    opportunityItem.setQuantity(leadItem.getQuantity());
+                    opportunityItem.setUnitPrice(leadItem.getEstimatedUnitPrice());
+                    opportunityItem.setTotalAmount(leadItem.getEstimatedTotal());
+                    opportunityItem.setNotes(leadItem.getNotes());
+                    opportunityItem.setSortOrder(leadItem.getSortOrder());
+                    return opportunityItem;
+                })
+                .toList();
+        if (!opportunityItems.isEmpty()) {
+            opportunityItemRepository.saveAll(opportunityItems);
+        }
+    }
+
+    private boolean isEmptyItem(LeadItemRequest request) {
+        return request == null
+                || (request.getProductType() == null
+                && trimToNull(request.getItemName()) == null
+                && request.getQuantity() == null
+                && request.getEstimatedUnitPrice() == null
+                && trimToNull(request.getNotes()) == null);
+    }
+
+    private void validateLeadItem(LeadItemRequest request) {
+        validateProductType(request.getProductType());
+        if (trimToNull(request.getItemName()) == null) {
+            throw new IllegalArgumentException("Item name is required");
+        }
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new IllegalArgumentException("Quantity must be greater than zero");
+        }
+        nonNegativeAmount(request.getEstimatedUnitPrice(), "Estimated unit price");
+    }
+
+    private void validateProductType(OptionValue productType) {
+        if (productType == null || !PRODUCT_TYPE_GROUP.equals(productType.getGroupCode())) {
+            throw new IllegalArgumentException("Product type is required");
+        }
+    }
+
+    private BigDecimal nonNegativeAmount(BigDecimal amount, String label) {
+        BigDecimal value = amount == null ? BigDecimal.ZERO : amount;
+        if (value.signum() < 0) {
+            throw new IllegalArgumentException(label + " must not be negative");
+        }
+        return value;
     }
 
     private void markLeadConverted(Lead lead, Opportunity opportunity) {
@@ -416,6 +575,7 @@ public class LeadService {
         private String description;
         private String notes;
         private String initialActivityNote;
+        private List<LeadItemRequest> items = new java.util.ArrayList<>();
 
         public String getTitle() {
             return title;
@@ -519,6 +679,103 @@ public class LeadService {
 
         public void setInitialActivityNote(String initialActivityNote) {
             this.initialActivityNote = initialActivityNote;
+        }
+
+        public List<LeadItemRequest> getItems() {
+            return items;
+        }
+
+        public void setItems(List<LeadItemRequest> items) {
+            this.items = items == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(items);
+        }
+    }
+
+    public static class ConvertLeadRequest {
+
+        private BigDecimal estimatedAmount;
+        private Integer probability;
+        private LocalDate expectedCloseDate;
+
+        public BigDecimal getEstimatedAmount() {
+            return estimatedAmount;
+        }
+
+        public void setEstimatedAmount(BigDecimal estimatedAmount) {
+            this.estimatedAmount = estimatedAmount;
+        }
+
+        public Integer getProbability() {
+            return probability;
+        }
+
+        public void setProbability(Integer probability) {
+            this.probability = probability;
+        }
+
+        public LocalDate getExpectedCloseDate() {
+            return expectedCloseDate;
+        }
+
+        public void setExpectedCloseDate(LocalDate expectedCloseDate) {
+            this.expectedCloseDate = expectedCloseDate;
+        }
+    }
+
+    public static class LeadItemRequest {
+
+        private OptionValue productType;
+        private String itemName;
+        private String description;
+        private Integer quantity;
+        private BigDecimal estimatedUnitPrice;
+        private String notes;
+
+        public OptionValue getProductType() {
+            return productType;
+        }
+
+        public void setProductType(OptionValue productType) {
+            this.productType = productType;
+        }
+
+        public String getItemName() {
+            return itemName;
+        }
+
+        public void setItemName(String itemName) {
+            this.itemName = itemName;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public void setDescription(String description) {
+            this.description = description;
+        }
+
+        public Integer getQuantity() {
+            return quantity;
+        }
+
+        public void setQuantity(Integer quantity) {
+            this.quantity = quantity;
+        }
+
+        public BigDecimal getEstimatedUnitPrice() {
+            return estimatedUnitPrice;
+        }
+
+        public void setEstimatedUnitPrice(BigDecimal estimatedUnitPrice) {
+            this.estimatedUnitPrice = estimatedUnitPrice;
+        }
+
+        public String getNotes() {
+            return notes;
+        }
+
+        public void setNotes(String notes) {
+            this.notes = notes;
         }
     }
 }

@@ -3,6 +3,7 @@ package com.quadteknologi.crm.views;
 import com.quadteknologi.crm.domain.entity.Company;
 import com.quadteknologi.crm.domain.entity.Lead;
 import com.quadteknologi.crm.domain.entity.Opportunity;
+import com.quadteknologi.crm.domain.entity.OpportunityItem;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.User;
@@ -167,6 +168,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 editing);
 
         List<OptionValue> statuses = opportunityService.findPipelineStatuses();
+        List<OptionValue> productTypes = opportunityService.findProductTypes();
         List<Lead> leads = new ArrayList<>(opportunityService.findValidLeads());
         List<Company> companies = new ArrayList<>(opportunityService.findCompanies());
         List<Person> persons = new ArrayList<>(opportunityService.findPersons());
@@ -274,31 +276,48 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         description.setMinHeight("92px");
         TextArea notes = new TextArea("Internal Notes");
         notes.setMinHeight("92px");
+        Component itemsEditor = createOpportunityItemsEditor(request.getItems(), productTypes);
 
-        binder.forField(title).asRequired("Opportunity title is required").bind(
-                OpportunityService.OpportunityRequest::getTitle,
-                OpportunityService.OpportunityRequest::setTitle);
-        binder.forField(status).asRequired("Stage is required").bind(
-                OpportunityService.OpportunityRequest::getStatus,
-                OpportunityService.OpportunityRequest::setStatus);
-        binder.bind(lead, OpportunityService.OpportunityRequest::getLead,
-                OpportunityService.OpportunityRequest::setLead);
-        binder.bind(company, OpportunityService.OpportunityRequest::getCompany,
-                OpportunityService.OpportunityRequest::setCompany);
-        binder.bind(person, OpportunityService.OpportunityRequest::getPerson,
-                OpportunityService.OpportunityRequest::setPerson);
-        binder.bind(estimatedAmount, OpportunityService.OpportunityRequest::getEstimatedAmount,
-                OpportunityService.OpportunityRequest::setEstimatedAmount);
-        binder.bind(probability, OpportunityService.OpportunityRequest::getProbability,
-                OpportunityService.OpportunityRequest::setProbability);
-        binder.bind(expectedClose, OpportunityService.OpportunityRequest::getExpectedCloseDate,
-                OpportunityService.OpportunityRequest::setExpectedCloseDate);
-        binder.bind(assignedTo, OpportunityService.OpportunityRequest::getAssignedTo,
-                OpportunityService.OpportunityRequest::setAssignedTo);
+        binder.forField(title)
+                .asRequired("Opportunity title is required")
+                .bind( OpportunityService.OpportunityRequest::getTitle, OpportunityService.OpportunityRequest::setTitle);
+
+        binder.forField(status)
+                .asRequired("Stage is required")
+                .bind(OpportunityService.OpportunityRequest::getStatus, OpportunityService.OpportunityRequest::setStatus);
+
+        binder.bind(lead, OpportunityService.OpportunityRequest::getLead, OpportunityService.OpportunityRequest::setLead);
+
+        binder.forField(company)
+                .asRequired("Company Name is required")
+                .bind(OpportunityService.OpportunityRequest::getCompany, OpportunityService.OpportunityRequest::setCompany);
+
+        binder.forField(person)
+                .asRequired("Person Name is required")
+                .bind(OpportunityService.OpportunityRequest::getPerson, OpportunityService.OpportunityRequest::setPerson);
+
+        binder.forField(estimatedAmount)
+                .asRequired("Estimated Amount is required")
+                .bind(OpportunityService.OpportunityRequest::getEstimatedAmount, OpportunityService.OpportunityRequest::setEstimatedAmount);
+
+        binder.forField(probability)
+                .asRequired("Probability is required")
+                .bind(OpportunityService.OpportunityRequest::getProbability, OpportunityService.OpportunityRequest::setProbability);
+
+        binder.forField(expectedClose)
+                .asRequired("Expected Close is required")
+                .bind(OpportunityService.OpportunityRequest::getExpectedCloseDate, OpportunityService.OpportunityRequest::setExpectedCloseDate);
+
+        binder.forField(assignedTo)
+                .asRequired("Assigned To is required")
+                .bind(OpportunityService.OpportunityRequest::getAssignedTo, OpportunityService.OpportunityRequest::setAssignedTo);
+
         binder.bind(description, OpportunityService.OpportunityRequest::getDescription,
                 OpportunityService.OpportunityRequest::setDescription);
+
         binder.bind(notes, OpportunityService.OpportunityRequest::getNotes,
                 OpportunityService.OpportunityRequest::setNotes);
+
         binder.readBean(request);
 
         Div formBody = new Div();
@@ -316,6 +335,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 probability,
                 expectedClose,
                 assignedTo,
+                sectionDivider("Items"),
+                itemsEditor,
                 sectionDivider("Details"),
                 description,
                 notes);
@@ -336,7 +357,94 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         request.setAssignedTo(opportunity.getAssignedTo());
         request.setDescription(opportunity.getDescription());
         request.setNotes(opportunity.getNotes());
+        request.setItems(opportunityService.findOpportunityItems(opportunity.getId())
+                .stream()
+                .map(this::createItemRequestFromOpportunityItem)
+                .toList());
         return request;
+    }
+
+    private OpportunityService.OpportunityItemRequest createItemRequestFromOpportunityItem(OpportunityItem item) {
+        OpportunityService.OpportunityItemRequest request = new OpportunityService.OpportunityItemRequest();
+        request.setProductType(item.getProductType());
+        request.setItemName(item.getItemName());
+        request.setDescription(item.getDescription());
+        request.setQuantity(item.getQuantity());
+        request.setUnitPrice(item.getUnitPrice());
+        request.setNotes(item.getNotes());
+        return request;
+    }
+
+    private Component createOpportunityItemsEditor(List<OpportunityService.OpportunityItemRequest> items,
+            List<OptionValue> productTypes) {
+        Div editor = new Div();
+        editor.addClassName("sales-items-editor");
+
+        Div rows = new Div();
+        rows.addClassName("sales-items-editor-rows");
+
+        Runnable[] refresh = new Runnable[1];
+        refresh[0] = () -> {
+            rows.removeAll();
+            for (OpportunityService.OpportunityItemRequest item : items) {
+                rows.add(createOpportunityItemRow(item, items, productTypes, refresh[0]));
+            }
+        };
+
+        Button add = new Button("Add Item", VaadinIcon.PLUS.create(), event -> {
+            items.add(new OpportunityService.OpportunityItemRequest());
+            refresh[0].run();
+        });
+        add.addClassName("sales-items-add");
+
+        refresh[0].run();
+        editor.add(rows, add);
+        return editor;
+    }
+
+    private Component createOpportunityItemRow(OpportunityService.OpportunityItemRequest item,
+            List<OpportunityService.OpportunityItemRequest> items, List<OptionValue> productTypes, Runnable refresh) {
+        Div row = new Div();
+        row.addClassName("sales-item-row");
+
+        ComboBox<OptionValue> productType = new ComboBox<>("Product Type");
+        productType.setItems(productTypes);
+        productType.setItemLabelGenerator(OptionValue::getName);
+        OptionValue selectedProductType = findOptionByCode(productTypes,
+                item.getProductType() == null ? null : item.getProductType().getCode());
+        item.setProductType(selectedProductType);
+        productType.setValue(selectedProductType);
+        productType.addValueChangeListener(event -> item.setProductType(event.getValue()));
+
+        TextField itemName = new TextField("Item Name");
+        itemName.setValue(valueOrEmpty(item.getItemName()));
+        itemName.addValueChangeListener(event -> item.setItemName(event.getValue()));
+
+        IntegerField quantity = new IntegerField("Qty");
+        quantity.setMin(1);
+        quantity.setValue(item.getQuantity());
+        quantity.addValueChangeListener(event -> item.setQuantity(event.getValue()));
+
+        BigDecimalField unitPrice = new BigDecimalField("Unit Price");
+        unitPrice.setPrefixComponent(new Span("Rp"));
+        unitPrice.setValue(item.getUnitPrice());
+        unitPrice.getElement().setAttribute("inputmode", "decimal");
+        unitPrice.addValueChangeListener(event -> item.setUnitPrice(event.getValue()));
+
+        TextArea notes = new TextArea("Notes");
+        notes.setValue(valueOrEmpty(item.getNotes()));
+        notes.setMinHeight("76px");
+        notes.addValueChangeListener(event -> item.setNotes(event.getValue()));
+
+        Button remove = new Button(VaadinIcon.TRASH.create(), event -> {
+            items.remove(item);
+            refresh.run();
+        });
+        remove.addClassName("sales-item-remove");
+        remove.getElement().setAttribute("aria-label", "Remove item");
+
+        row.add(productType, itemName, quantity, unitPrice, notes, remove);
+        return row;
     }
 
     private Div createOpportunityFormShell(String titleText, String subtitleText, boolean editing) {
@@ -378,6 +486,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 kanbanBoard.setDetail(createOpportunityDetail(savedOpportunity));
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
             }
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
@@ -496,6 +606,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 detailRow("Expected close", opportunity.getExpectedCloseDate() == null ? "-" : opportunity.getExpectedCloseDate().format(DATE_FORMAT)),
                 detailRow("Assigned to", opportunity.getAssignedTo() == null ? "-" : opportunity.getAssignedTo().getFullName()),
                 detailRow("Created", opportunity.getCreatedAt() == null ? "-" : opportunity.getCreatedAt().format(DATE_FORMAT)),
+                detailItemsSection("Items", opportunityService.findOpportunityItems(opportunity.getId())),
                 detailSection("Description", opportunity.getDescription()),
                 detailSection("Notes", opportunity.getNotes()),
                 new ActivityTimeline(opportunityService.findActivities(opportunity.getId())));
@@ -550,6 +661,45 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         return section;
     }
 
+    private Component detailItemsSection(String label, List<OpportunityItem> items) {
+        Div section = new Div();
+        section.addClassNames("pipeline-detail-section", "sales-items-detail");
+
+        Span labelSpan = new Span(label);
+        labelSpan.addClassName("pipeline-detail-label");
+        section.add(labelSpan);
+
+        if (items.isEmpty()) {
+            Paragraph empty = new Paragraph("-");
+            empty.addClassName("pipeline-detail-text");
+            section.add(empty);
+            return section;
+        }
+
+        items.forEach(item -> {
+            Div row = new Div();
+            row.addClassName("sales-item-detail-row");
+
+            Span name = new Span(item.getItemName());
+            name.addClassName("sales-item-detail-name");
+
+            Span meta = new Span(productTypeName(item.getProductType(), item.getProductTypeCode())
+                    + " | " + item.getQuantity()
+                    + " x " + formatAmountOrDash(item.getUnitPrice())
+                    + " = " + formatAmountOrDash(item.getTotalAmount()));
+            meta.addClassName("sales-item-detail-meta");
+
+            row.add(name, meta);
+            if (item.getNotes() != null && !item.getNotes().isBlank()) {
+                Paragraph notes = new Paragraph(item.getNotes());
+                notes.addClassName("sales-item-detail-notes");
+                row.add(notes);
+            }
+            section.add(row);
+        });
+        return section;
+    }
+
     private String displayPrimaryName(Opportunity opportunity) {
         if (opportunity.getPerson() != null) {
             return opportunity.getPerson().getFullName();
@@ -574,6 +724,13 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     private OptionValue findStatusByCode(List<OptionValue> statuses, String statusCode) {
         return statuses.stream()
                 .filter(status -> Objects.equals(status.getCode(), statusCode))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private OptionValue findOptionByCode(List<OptionValue> options, String code) {
+        return options.stream()
+                .filter(option -> Objects.equals(option.getCode(), code))
                 .findFirst()
                 .orElse(null);
     }
@@ -615,6 +772,14 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
     private String valueOrDash(String value) {
         return value == null || value.isBlank() ? "-" : value;
+    }
+
+    private String valueOrEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String productTypeName(OptionValue productType, String fallbackCode) {
+        return productType == null ? valueOrDash(fallbackCode) : productType.getName();
     }
 
     private String normalizeColor(String color) {
