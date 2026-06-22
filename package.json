@@ -34,7 +34,12 @@
     "transform-ast": "2.4.4",
     "typescript": "5.9.3",
     "vite": "7.3.5",
-    "vite-plugin-checker": "0.12.0"
+    "vite-plugin-checker": "0.12.0",
+    "workbox-build": "7.4.1",
+    "workbox-core": "7.4.1",
+    "workbox-precaching": "7.4.1",
+    "workbox-routing": "7.4.1",
+    "workbox-strategies": "7.4.1"
   },
   "vaadin": {
     "dependencies": {
@@ -69,9 +74,14 @@
       "transform-ast": "2.4.4",
       "typescript": "5.9.3",
       "vite": "7.3.5",
-      "vite-plugin-checker": "0.12.0"
+      "vite-plugin-checker": "0.12.0",
+      "workbox-build": "7.4.1",
+      "workbox-core": "7.4.1",
+      "workbox-precaching": "7.4.1",
+      "workbox-routing": "7.4.1",
+      "workbox-strategies": "7.4.1"
     },
-    "hash": "fb013a89aeb6e07a25e262e251c6179c490389b03f5656fc40df52b66c7ec98e",
+    "hash": "a39569291dc543f3d08adb8e7c533412daca1b433f57a6b0d315f8e510837e69",
     "overrides": {
       "@vaadin/a11y-base": "25.1.4",
       "@vaadin/accordion": "25.1.4",
@@ -146,7 +156,10 @@
       "lit": "$lit",
       "react": "$react",
       "react-dom": "$react-dom",
-      "react-router": "$react-router"
+      "react-router": "$react-router",
+      "workbox-build": {
+        "glob": "13.0.6"
+      }
     }
   },
   "overrides": {
@@ -223,6 +236,9 @@
     "@vaadin/vaadin-lumo-styles": "$@vaadin/vaadin-lumo-styles",
     "@vaadin/email-field": "25.1.4",
     "@vaadin/message-input": "25.1.4",
-    "imask": "$imask"
+    "imask": "$imask",
+    "workbox-build": {
+      "glob": "13.0.6"
+    }
   }
 }

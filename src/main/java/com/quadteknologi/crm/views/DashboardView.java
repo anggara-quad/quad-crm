@@ -36,6 +36,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+
 @RolesAllowed({"Administrator", "Manager", "Sales"})
 @PageTitle("Dashboard | Quad CRM")
 @Route(value = "", layout = MainLayout.class)
@@ -43,7 +45,6 @@ public class DashboardView extends VerticalLayout {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String CHART_JS_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js";
-    private static final NumberFormat CURRENCY_FORMAT = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
 
@@ -494,7 +495,7 @@ public class DashboardView extends VerticalLayout {
     }
 
     private String formatCurrency(BigDecimal amount) {
-        return CURRENCY_FORMAT.format(safeAmount(amount));
+        return formatRupiah(safeAmount(amount));
     }
 
     private String formatDate(LocalDate date) {

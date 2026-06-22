@@ -7,6 +7,7 @@ import com.vaadin.flow.component.page.Meta;
 import com.vaadin.flow.component.page.TargetElement;
 import com.vaadin.flow.component.page.Viewport;
 import com.vaadin.flow.server.AppShellSettings;
+import com.vaadin.flow.server.PWA;
 import com.vaadin.flow.theme.aura.Aura;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -16,6 +17,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @Viewport("width=device-width, initial-scale=1")
 @StyleSheet(Aura.STYLESHEET)
 @StyleSheet("styles.css")
+@PWA(name = "Quad CRM", shortName = "Q-CRM", iconPath = "images/icon.ico")
 public class Application implements AppShellConfigurator {
 
     public static void main(String[] args) {

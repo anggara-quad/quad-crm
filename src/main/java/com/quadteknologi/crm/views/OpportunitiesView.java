@@ -1,14 +1,18 @@
 package com.quadteknologi.crm.views;
 
 import com.quadteknologi.crm.domain.entity.Company;
+import com.quadteknologi.crm.domain.entity.Country;
 import com.quadteknologi.crm.domain.entity.Lead;
 import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.OpportunityItem;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Person;
+import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.domain.entity.User;
+import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.service.OpportunityService;
 import com.quadteknologi.crm.ui.component.ActivityTimeline;
+import com.quadteknologi.crm.ui.component.CurrencyField;
 import com.quadteknologi.crm.ui.component.KanbanBoard;
 import com.quadteknologi.crm.ui.layout.MainLayout;
 import com.vaadin.flow.component.Component;
@@ -16,6 +20,7 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
+import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -28,7 +33,7 @@ import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.textfield.BigDecimalField;
+import com.vaadin.flow.component.textfield.EmailField;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
@@ -42,7 +47,6 @@ import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.RolesAllowed;
 
 import java.math.BigDecimal;
-import java.text.NumberFormat;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -52,20 +56,23 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+
 @RolesAllowed({"Administrator", "Manager", "Sales"})
 @PageTitle("Opportunities | Quad CRM")
 @Route(value = "opportunities", layout = MainLayout.class)
 public class OpportunitiesView extends VerticalLayout implements BeforeEnterObserver {
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
-    private static final NumberFormat CURRENCY_FORMAT = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
 
     private final OpportunityService opportunityService;
+    private final ContactService contactService;
     private KanbanBoard<Opportunity> kanbanBoard;
     private String searchTerm = "";
 
-    public OpportunitiesView(OpportunityService opportunityService) {
+    public OpportunitiesView(OpportunityService opportunityService, ContactService contactService) {
         this.opportunityService = opportunityService;
+        this.contactService = contactService;
 
         addClassName("page-view");
         setPadding(false);
@@ -206,6 +213,19 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         person.setItemLabelGenerator(this::displayPersonOption);
         person.setClearButtonVisible(true);
 
+        Button createCompanyButton = new Button(VaadinIcon.PLUS.create(),
+                event -> openQuickCreateCompany(company, companies));
+        createCompanyButton.addClassName("pipeline-inline-create-button");
+        createCompanyButton.getElement().setAttribute("aria-label", "Create organization");
+
+        Button createPersonButton = new Button(VaadinIcon.PLUS.create(),
+                event -> openQuickCreatePerson(person, company, persons, companies));
+        createPersonButton.addClassName("pipeline-inline-create-button");
+        createPersonButton.getElement().setAttribute("aria-label", "Create person");
+
+        HorizontalLayout companyRow = fieldActionRow(company, createCompanyButton);
+        HorizontalLayout personRow = fieldActionRow(person, createPersonButton);
+
         lead.addValueChangeListener(event -> {
             Lead selectedLead = event.getValue();
             if (selectedLead == null) {
@@ -254,11 +274,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
             }
         });
 
-        BigDecimalField estimatedAmount = new BigDecimalField("Estimated Amount");
-        estimatedAmount.setPrefixComponent(new Span("Rp"));
-        estimatedAmount.setClearButtonVisible(true);
-        estimatedAmount.setPlaceholder("0");
-        estimatedAmount.getElement().setAttribute("inputmode", "decimal");
+        CurrencyField estimatedAmount = new CurrencyField("Estimated Amount");
 
         IntegerField probability = new IntegerField("Probability");
         probability.setMin(0);
@@ -276,7 +292,20 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         description.setMinHeight("92px");
         TextArea notes = new TextArea("Internal Notes");
         notes.setMinHeight("92px");
+        TextField soNumber = new TextField("SO Number");
+        TextField contractPoNumber = new TextField("Contract / PO Number");
+        Component wonDocumentsDivider = sectionDivider("Won Documents");
         Component itemsEditor = createOpportunityItemsEditor(request.getItems(), productTypes);
+
+        Runnable updateWonDocumentVisibility = () -> {
+            boolean visible = isWonStatus(status.getValue())
+                    || !valueOrEmpty(soNumber.getValue()).isBlank()
+                    || !valueOrEmpty(contractPoNumber.getValue()).isBlank();
+            wonDocumentsDivider.setVisible(visible);
+            soNumber.setVisible(visible);
+            contractPoNumber.setVisible(visible);
+        };
+        status.addValueChangeListener(event -> updateWonDocumentVisibility.run());
 
         binder.forField(title)
                 .asRequired("Opportunity title is required")
@@ -318,7 +347,22 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         binder.bind(notes, OpportunityService.OpportunityRequest::getNotes,
                 OpportunityService.OpportunityRequest::setNotes);
 
+        binder.forField(soNumber)
+                .withValidator(
+                        value -> !isWonStatus(status.getValue()) || !valueOrEmpty(value).isBlank(),
+                        "SO Number is required when opportunity is Won")
+                .bind(OpportunityService.OpportunityRequest::getSoNumber,
+                        OpportunityService.OpportunityRequest::setSoNumber);
+
+        binder.forField(contractPoNumber)
+                .withValidator(
+                        value -> !isWonStatus(status.getValue()) || !valueOrEmpty(value).isBlank(),
+                        "Contract / PO Number is required when opportunity is Won")
+                .bind(OpportunityService.OpportunityRequest::getContractPoNumber,
+                        OpportunityService.OpportunityRequest::setContractPoNumber);
+
         binder.readBean(request);
+        updateWonDocumentVisibility.run();
 
         Div formBody = new Div();
         formBody.addClassName("pipeline-form-body");
@@ -328,13 +372,16 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 status,
                 lead,
                 sectionDivider("Contact"),
-                company,
-                person,
+                companyRow,
+                personRow,
                 sectionDivider("Forecast"),
                 estimatedAmount,
                 probability,
                 expectedClose,
                 assignedTo,
+                wonDocumentsDivider,
+                soNumber,
+                contractPoNumber,
                 sectionDivider("Items"),
                 itemsEditor,
                 sectionDivider("Details"),
@@ -357,6 +404,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         request.setAssignedTo(opportunity.getAssignedTo());
         request.setDescription(opportunity.getDescription());
         request.setNotes(opportunity.getNotes());
+        request.setSoNumber(opportunity.getSoNumber());
+        request.setContractPoNumber(opportunity.getContractPoNumber());
         request.setItems(opportunityService.findOpportunityItems(opportunity.getId())
                 .stream()
                 .map(this::createItemRequestFromOpportunityItem)
@@ -425,10 +474,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         quantity.setValue(item.getQuantity());
         quantity.addValueChangeListener(event -> item.setQuantity(event.getValue()));
 
-        BigDecimalField unitPrice = new BigDecimalField("Unit Price");
-        unitPrice.setPrefixComponent(new Span("Rp"));
+        CurrencyField unitPrice = new CurrencyField("Unit Price");
         unitPrice.setValue(item.getUnitPrice());
-        unitPrice.getElement().setAttribute("inputmode", "decimal");
         unitPrice.addValueChangeListener(event -> item.setUnitPrice(event.getValue()));
 
         TextArea notes = new TextArea("Notes");
@@ -445,6 +492,246 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
         row.add(productType, itemName, quantity, unitPrice, notes, remove);
         return row;
+    }
+
+    private HorizontalLayout fieldActionRow(Component field, Button action) {
+        HorizontalLayout row = new HorizontalLayout(field, action);
+        row.addClassName("pipeline-combo-action-row");
+        row.setPadding(false);
+        row.setSpacing(true);
+        row.setWidthFull();
+        row.setFlexGrow(1, field);
+        return row;
+    }
+
+    private void openQuickCreateCompany(ComboBox<Company> companyField, List<Company> companies) {
+        Company company = new Company();
+        Binder<Company> binder = new Binder<>(Company.class);
+        Dialog dialog = quickCreateDialog("Create Organization");
+
+        TextField name = new TextField("Name");
+        TextField industry = new TextField("Industry");
+        TextField website = new TextField("Website");
+        EmailField email = new EmailField("Email");
+        TextField phone = phoneField("Phone");
+        ComboBox<Country> country = new ComboBox<>("Country");
+        ComboBox<Region> province = new ComboBox<>("Province");
+        ComboBox<Region> city = new ComboBox<>("City / Regency");
+        TextArea address = new TextArea("Address");
+        address.setMinHeight("90px");
+
+        boolean[] loadingForm = {true};
+        List<Country> countries = contactService.findActiveCountries();
+        country.setItems(countries);
+        country.setItemLabelGenerator(Country::getName);
+        country.setClearButtonVisible(true);
+
+        province.setItemLabelGenerator(Region::getName);
+        province.setClearButtonVisible(true);
+        province.setEnabled(false);
+
+        city.setItemLabelGenerator(Region::getName);
+        city.setClearButtonVisible(true);
+        city.setEnabled(false);
+
+        if (countries.size() == 1) {
+            company.setCountry(countries.get(0));
+            List<Region> provinces = contactService.findActiveProvinces(countries.get(0));
+            province.setItems(provinces);
+            province.setEnabled(!provinces.isEmpty());
+        }
+
+        country.addValueChangeListener(event -> {
+            if (loadingForm[0]) {
+                return;
+            }
+            Country selected = event.getValue();
+            province.clear();
+            city.clear();
+            city.setItems(List.of());
+            city.setEnabled(false);
+
+            List<Region> provinces = selected == null ? List.of() : contactService.findActiveProvinces(selected);
+            province.setItems(provinces);
+            province.setEnabled(!provinces.isEmpty());
+        });
+
+        province.addValueChangeListener(event -> {
+            if (loadingForm[0]) {
+                return;
+            }
+            Region selected = event.getValue();
+            city.clear();
+
+            List<Region> cities = selected == null ? List.of() : contactService.findActiveCities(selected);
+            city.setItems(cities);
+            city.setEnabled(!cities.isEmpty());
+        });
+
+        binder.forField(name)
+                .asRequired("Name is required")
+                .bind(Company::getName, Company::setName);
+
+        binder.forField(industry)
+                .asRequired("Industry is required")
+                .bind(Company::getIndustry, Company::setIndustry);
+
+        binder.forField(website)
+                .bind(Company::getWebsite, Company::setWebsite);
+
+        binder.forField(email)
+                .asRequired("Email is required")
+                .bind(Company::getEmail, Company::setEmail);
+
+        binder.forField(phone)
+                .asRequired("Phone is required")
+                .bind(Company::getPhone, Company::setPhone);
+
+        binder.forField(country)
+                .asRequired("Country is required")
+                .bind(Company::getCountry, Company::setCountry);
+
+        binder.forField(province)
+                .asRequired("Province is required")
+                .bind(Company::getProvince, Company::setProvince);
+
+        binder.forField(city)
+                .asRequired("City / Regency is required")
+                .bind(Company::getCity, Company::setCity);
+
+        binder.forField(address)
+                .asRequired("Address is required")
+                .bind(Company::getAddress, Company::setAddress);
+
+        binder.readBean(company);
+        loadingForm[0] = false;
+
+        Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
+            try {
+                binder.writeBean(company);
+                Company savedCompany = contactService.saveCompany(company);
+                companies.removeIf(item -> Objects.equals(item.getId(), savedCompany.getId()));
+                companies.add(savedCompany);
+                companies.sort((left, right) -> left.getName().compareToIgnoreCase(right.getName()));
+                companyField.setItems(companies);
+                companyField.setValue(savedCompany);
+                dialog.close();
+                showSuccess("Organization created");
+            } catch (ValidationException exception) {
+                showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
+            }
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        dialog.add(name, industry, website, email, phone, country, province, city, address, dialogActions(save, dialog));
+        dialog.open();
+    }
+
+    private void openQuickCreatePerson(ComboBox<Person> personField, ComboBox<Company> companyField,
+            List<Person> persons, List<Company> companies) {
+        Person person = new Person();
+        person.setCompany(companyField.getValue());
+
+        Binder<Person> binder = new Binder<>(Person.class);
+        Dialog dialog = quickCreateDialog("Create Person");
+
+        TextField fullName = new TextField("Full Name");
+        ComboBox<Company> company = new ComboBox<>("Organization");
+        company.setItems(companies);
+        company.setItemLabelGenerator(Company::getName);
+        company.setClearButtonVisible(true);
+        TextField jobTitle = new TextField("Job Title");
+        EmailField email = new EmailField("Email");
+        TextField phone = phoneField("Phone");
+        TextField whatsapp = phoneField("WhatsApp");
+        binder.forField(fullName)
+                .asRequired("Full name is required")
+                .bind(Person::getFullName, Person::setFullName);
+
+        binder.forField(company)
+                .asRequired("Company name is required")
+                .bind(Person::getCompany, Person::setCompany);
+
+        binder.forField(jobTitle)
+                .asRequired("Job title is required")
+                .bind(Person::getJobTitle, Person::setJobTitle);
+
+        binder.forField(email)
+                .asRequired("Email is required")
+                .bind(Person::getEmail, Person::setEmail);
+
+        binder.forField(phone)
+                .asRequired("Phone is required")
+                .bind(Person::getPhone, Person::setPhone);
+
+        binder.bind(whatsapp, Person::getWhatsapp, Person::setWhatsapp);
+
+        binder.readBean(person);
+
+        Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
+            try {
+                binder.writeBean(person);
+                Person savedPerson = contactService.savePerson(person);
+                persons.removeIf(item -> Objects.equals(item.getId(), savedPerson.getId()));
+                persons.add(savedPerson);
+                persons.sort((left, right) -> left.getFullName().compareToIgnoreCase(right.getFullName()));
+                personField.setItems(persons);
+                if (savedPerson.getCompany() != null) {
+                    companyField.setValue(savedPerson.getCompany());
+                }
+                personField.setValue(savedPerson);
+                dialog.close();
+                showSuccess("Person created");
+            } catch (ValidationException exception) {
+                showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
+            }
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        dialog.add(fullName, company, jobTitle, email, phone, whatsapp, dialogActions(save, dialog));
+        dialog.open();
+    }
+
+    private Dialog quickCreateDialog(String titleText) {
+        Dialog dialog = new Dialog();
+        dialog.addClassName("quick-create-dialog");
+        dialog.setCloseOnEsc(true);
+        dialog.setCloseOnOutsideClick(false);
+
+        Div header = new Div();
+        header.addClassName("quick-create-header");
+        H3 title = new H3(titleText);
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
+        close.addClassName("pipeline-detail-close");
+        close.getElement().setAttribute("aria-label", "Close " + titleText);
+        header.add(title, close);
+
+        dialog.add(header);
+        return dialog;
+    }
+
+    private Component dialogActions(Button save, Dialog dialog) {
+        Button cancel = new Button("Cancel", event -> dialog.close());
+        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+
+        HorizontalLayout actions = new HorizontalLayout(save, cancel);
+        actions.addClassName("pipeline-form-actions");
+        actions.setPadding(false);
+        actions.setSpacing(true);
+        return actions;
+    }
+
+    private TextField phoneField(String label) {
+        TextField field = new TextField(label);
+        field.setClearButtonVisible(true);
+        field.setPlaceholder("+62 812 3456 7890");
+        field.getElement().setAttribute("inputmode", "tel");
+        field.getElement().setAttribute("autocomplete", "tel");
+        return field;
     }
 
     private Div createOpportunityFormShell(String titleText, String subtitleText, boolean editing) {
@@ -604,6 +891,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 detailRow("Estimated amount", formatAmountOrDash(opportunity.getEstimatedAmount())),
                 detailRow("Probability", formatProbabilityOrDash(opportunity.getProbability())),
                 detailRow("Expected close", opportunity.getExpectedCloseDate() == null ? "-" : opportunity.getExpectedCloseDate().format(DATE_FORMAT)),
+                detailRow("SO Number", opportunity.getSoNumber()),
+                detailRow("Contract / PO Number", opportunity.getContractPoNumber()),
                 detailRow("Assigned to", opportunity.getAssignedTo() == null ? "-" : opportunity.getAssignedTo().getFullName()),
                 detailRow("Created", opportunity.getCreatedAt() == null ? "-" : opportunity.getCreatedAt().format(DATE_FORMAT)),
                 detailItemsSection("Items", opportunityService.findOpportunityItems(opportunity.getId())),
@@ -629,14 +918,73 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 return;
             }
 
-            Opportunity updatedOpportunity = opportunityService.updateOpportunityStatus(
-                    opportunity.getId(), event.getValue());
-            refreshKanbanBoard();
-            showSuccess("Opportunity moved to " + event.getValue().getName());
-            kanbanBoard.setDetail(createOpportunityDetail(updatedOpportunity));
+            if (requiresWonDocumentInput(opportunity, event.getValue())) {
+                openWonDocumentsDialog(opportunity, event.getValue(), status);
+                return;
+            }
+
+            moveOpportunityStatus(opportunity, event.getValue(), null, null);
         });
 
         return status;
+    }
+
+    private void openWonDocumentsDialog(
+            Opportunity opportunity,
+            OptionValue nextStatus,
+            ComboBox<OptionValue> statusControl) {
+        Dialog dialog = quickCreateDialog("Complete Won Details");
+        boolean[] saved = {false};
+
+        TextField soNumber = new TextField("SO Number");
+        soNumber.setValue(valueOrEmpty(opportunity.getSoNumber()));
+        soNumber.setClearButtonVisible(true);
+
+        TextField contractPoNumber = new TextField("Contract / PO Number");
+        contractPoNumber.setValue(valueOrEmpty(opportunity.getContractPoNumber()));
+        contractPoNumber.setClearButtonVisible(true);
+
+        Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
+            if (soNumber.getValue() == null || soNumber.getValue().isBlank()) {
+                showError("SO Number is required");
+                return;
+            }
+            if (contractPoNumber.getValue() == null || contractPoNumber.getValue().isBlank()) {
+                showError("Contract / PO Number is required");
+                return;
+            }
+
+            saved[0] = true;
+            dialog.close();
+            moveOpportunityStatus(opportunity, nextStatus, soNumber.getValue(), contractPoNumber.getValue());
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        dialog.addOpenedChangeListener(event -> {
+            if (!event.isOpened() && !saved[0]) {
+                statusControl.setValue(findStatusByCode(opportunityService.findPipelineStatuses(), opportunity.getStatusCode()));
+            }
+        });
+
+        dialog.add(soNumber, contractPoNumber, dialogActions(save, dialog));
+        dialog.open();
+    }
+
+    private void moveOpportunityStatus(
+            Opportunity opportunity,
+            OptionValue nextStatus,
+            String soNumber,
+            String contractPoNumber) {
+        try {
+            Opportunity updatedOpportunity = opportunityService.updateOpportunityStatus(
+                    opportunity.getId(), nextStatus, soNumber, contractPoNumber);
+            refreshKanbanBoard();
+            showSuccess("Opportunity moved to " + nextStatus.getName());
+            kanbanBoard.setDetail(createOpportunityDetail(updatedOpportunity));
+        } catch (IllegalArgumentException exception) {
+            showError(exception.getMessage());
+            kanbanBoard.setDetail(createOpportunityDetail(opportunityService.findOpportunity(opportunity.getId())));
+        }
     }
 
     private Component detailRow(String label, String value) {
@@ -735,6 +1083,14 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 .orElse(null);
     }
 
+    private boolean requiresWonDocumentInput(Opportunity opportunity, OptionValue nextStatus) {
+        return Objects.equals("NEGOTIATION", opportunity.getStatusCode()) && isWonStatus(nextStatus);
+    }
+
+    private boolean isWonStatus(OptionValue status) {
+        return status != null && Objects.equals("WON", status.getCode());
+    }
+
     private Optional<Long> parseLong(String value) {
         try {
             return Optional.of(Long.parseLong(value));
@@ -755,11 +1111,11 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     }
 
     private String formatAmount(BigDecimal amount) {
-        return amount == null ? null : CURRENCY_FORMAT.format(amount);
+        return amount == null ? null : formatRupiah(amount);
     }
 
     private String formatAmountOrDash(BigDecimal amount) {
-        return amount == null ? "-" : CURRENCY_FORMAT.format(amount);
+        return formatRupiah(amount);
     }
 
     private String formatProbability(Integer probability) {

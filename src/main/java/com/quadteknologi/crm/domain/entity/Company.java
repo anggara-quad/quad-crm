@@ -29,14 +29,26 @@ public class Company extends AbstractAuditedEntity {
     @Column(columnDefinition = "text")
     private String address;
 
-    @Column(length = 100)
-    private String city;
+    @Column(name = "city", length = 100)
+    private String legacyCity;
 
-    @Column(length = 100)
-    private String province;
+    @Column(name = "province", length = 100)
+    private String legacyProvince;
 
-    @Column(length = 100)
-    private String country;
+    @Column(name = "country", length = 100)
+    private String legacyCountry;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "country_id")
+    private Country country;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "province_id")
+    private Region province;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "city_id")
+    private Region city;
 
     @Column(columnDefinition = "text")
     private String notes;
@@ -100,27 +112,51 @@ public class Company extends AbstractAuditedEntity {
         this.address = address;
     }
 
-    public String getCity() {
+    public String getLegacyCity() {
+        return legacyCity;
+    }
+
+    public void setLegacyCity(String legacyCity) {
+        this.legacyCity = legacyCity;
+    }
+
+    public String getLegacyProvince() {
+        return legacyProvince;
+    }
+
+    public void setLegacyProvince(String legacyProvince) {
+        this.legacyProvince = legacyProvince;
+    }
+
+    public String getLegacyCountry() {
+        return legacyCountry;
+    }
+
+    public void setLegacyCountry(String legacyCountry) {
+        this.legacyCountry = legacyCountry;
+    }
+
+    public Region getCity() {
         return city;
     }
 
-    public void setCity(String city) {
+    public void setCity(Region city) {
         this.city = city;
     }
 
-    public String getProvince() {
+    public Region getProvince() {
         return province;
     }
 
-    public void setProvince(String province) {
+    public void setProvince(Region province) {
         this.province = province;
     }
 
-    public String getCountry() {
+    public Country getCountry() {
         return country;
     }
 
-    public void setCountry(String country) {
+    public void setCountry(Country country) {
         this.country = country;
     }
 

@@ -39,6 +39,7 @@ public class LeadService {
     private static final String LEAD_STATUS_GROUP = "LEAD_STATUS";
     private static final String OPPORTUNITY_STATUS_GROUP = "OPPORTUNITY_STATUS";
     private static final String PRODUCT_TYPE_GROUP = "PRODUCT_TYPE";
+    private static final String SOURCE_TYPE_GROUP = "SOURCE_TYPE";
     private static final String ACTIVITY_TYPE_GROUP = "ACTIVITY_TYPE";
     private static final String CREATED_ACTIVITY_TYPE = "CREATED";
     private static final String STATUS_CHANGE_ACTIVITY_TYPE = "STATUS_CHANGE";
@@ -96,6 +97,10 @@ public class LeadService {
 
     public List<OptionValue> findProductTypes() {
         return optionValueRepository.findByGroupCodeAndActiveTrueOrderBySortOrderAsc(PRODUCT_TYPE_GROUP);
+    }
+
+    public List<OptionValue> findSourceTypes() {
+        return optionValueRepository.findByGroupCodeAndActiveTrueOrderBySortOrderAsc(SOURCE_TYPE_GROUP);
     }
 
     public Map<String, List<Lead>> findPipelineLeadsByStatus() {

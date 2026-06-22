@@ -1,7 +1,9 @@
 package com.quadteknologi.crm.views;
 
 import com.quadteknologi.crm.domain.entity.Company;
+import com.quadteknologi.crm.domain.entity.Country;
 import com.quadteknologi.crm.domain.entity.Person;
+import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.ui.layout.MainLayout;
 import com.vaadin.componentfactory.addons.inputmask.InputMask;
@@ -36,6 +38,8 @@ import jakarta.annotation.security.RolesAllowed;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Locale;
+import java.util.List;
+import java.util.Objects;
 
 @RolesAllowed({"Administrator", "Manager", "Sales"})
 @PageTitle("Contact | Quad CRM")
@@ -220,6 +224,8 @@ public class ContactView extends VerticalLayout {
                 showSuccess("Person saved");
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
             }
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
@@ -270,8 +276,12 @@ public class ContactView extends VerticalLayout {
         organizationGrid.addColumn(Company::getIndustry).setHeader("Industry").setAutoWidth(true);
         organizationGrid.addColumn(Company::getEmail).setHeader("Email").setAutoWidth(true);
         organizationGrid.addColumn(Company::getPhone).setHeader("Phone").setAutoWidth(true);
-        organizationGrid.addColumn(company -> company.getCity() == null ? "-" : company.getCity())
-                .setHeader("City").setAutoWidth(true);
+        organizationGrid.addColumn(company -> company.getCountry() == null ? "-" : company.getCountry().getName())
+                .setHeader("Country").setAutoWidth(true);
+        organizationGrid.addColumn(company -> company.getProvince() == null ? "-" : company.getProvince().getName())
+                .setHeader("Province").setAutoWidth(true);
+        organizationGrid.addColumn(company -> company.getCity() == null ? "-" : company.getCity().getName())
+                .setHeader("City / Regency").setAutoWidth(true);
         organizationGrid.asSingleSelect().addValueChangeListener(event -> {
             if (event.getValue() != null) {
                 openOrganizationForm(event.getValue());
@@ -292,13 +302,72 @@ public class ContactView extends VerticalLayout {
         TextField website = new TextField("Website");
         EmailField email = new EmailField("Email");
         TextField phone = phoneField("Phone");
-        TextField city = new TextField("City");
-        TextField province = new TextField("Province");
-        TextField country = new TextField("Country");
+        ComboBox<Country> country = new ComboBox<>("Country");
+        ComboBox<Region> province = new ComboBox<>("Province");
+        ComboBox<Region> city = new ComboBox<>("City / Regency");
         TextArea address = new TextArea("Address");
         TextArea notes = new TextArea("Notes");
         address.setMinHeight("90px");
         notes.setMinHeight("110px");
+
+        boolean[] loadingForm = {true};
+        List<Country> countries = contactService.findActiveCountries();
+        country.setItems(countries);
+        country.setItemLabelGenerator(Country::getName);
+        country.setClearButtonVisible(true);
+
+        province.setItemLabelGenerator(Region::getName);
+        province.setClearButtonVisible(true);
+        province.setEnabled(false);
+
+        city.setItemLabelGenerator(Region::getName);
+        city.setClearButtonVisible(true);
+        city.setEnabled(false);
+
+        Country selectedCountry = findCountryById(countries, company.getCountry());
+        if (selectedCountry == null && company.getId() == null && countries.size() == 1) {
+            selectedCountry = countries.get(0);
+        }
+        company.setCountry(selectedCountry);
+
+        List<Region> provinces = selectedCountry == null ? List.of() : contactService.findActiveProvinces(selectedCountry);
+        province.setItems(provinces);
+        province.setEnabled(!provinces.isEmpty());
+
+        Region selectedProvince = findRegionById(provinces, company.getProvince());
+        company.setProvince(selectedProvince);
+
+        List<Region> cities = selectedProvince == null ? List.of() : contactService.findActiveCities(selectedProvince);
+        city.setItems(cities);
+        city.setEnabled(!cities.isEmpty());
+        company.setCity(findRegionById(cities, company.getCity()));
+
+        country.addValueChangeListener(event -> {
+            if (loadingForm[0]) {
+                return;
+            }
+            Country selected = event.getValue();
+            province.clear();
+            city.clear();
+            city.setItems(List.of());
+            city.setEnabled(false);
+
+            List<Region> nextProvinces = selected == null ? List.of() : contactService.findActiveProvinces(selected);
+            province.setItems(nextProvinces);
+            province.setEnabled(!nextProvinces.isEmpty());
+        });
+
+        province.addValueChangeListener(event -> {
+            if (loadingForm[0]) {
+                return;
+            }
+            Region selected = event.getValue();
+            city.clear();
+
+            List<Region> nextCities = selected == null ? List.of() : contactService.findActiveCities(selected);
+            city.setItems(nextCities);
+            city.setEnabled(!nextCities.isEmpty());
+        });
 
         binder.forField(name)
                 .asRequired("Name is required")
@@ -319,17 +388,17 @@ public class ContactView extends VerticalLayout {
                 .asRequired("Phone is required")
                 .bind(Company::getPhone, Company::setPhone);
 
-        binder.forField(city)
-                .asRequired("City is required")
-                .bind(Company::getCity, Company::setCity);
+        binder.forField(country)
+                .asRequired("Country is required")
+                .bind(Company::getCountry, Company::setCountry);
 
         binder.forField(province)
                 .asRequired("Province is required")
                 .bind(Company::getProvince, Company::setProvince);
 
-        binder.forField(country)
-                .asRequired("Country is required")
-                .bind(Company::getCountry, Company::setCountry);
+        binder.forField(city)
+                .asRequired("City / Regency is required")
+                .bind(Company::getCity, Company::setCity);
 
         binder.forField(address)
                 .asRequired("Address is required")
@@ -337,8 +406,9 @@ public class ContactView extends VerticalLayout {
 
         binder.bind(notes, Company::getNotes, Company::setNotes);
         binder.readBean(company);
+        loadingForm[0] = false;
 
-        detail.add(name, industry, website, email, phone, city, province, country, address, notes,
+        detail.add(name, industry, website, email, phone, country, province, city, address, notes,
                 createOrganizationActions(company, binder));
         organizationLayout.setDetail(detail);
     }
@@ -354,6 +424,8 @@ public class ContactView extends VerticalLayout {
                 showSuccess("Organization saved");
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
             }
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
@@ -457,11 +529,31 @@ public class ContactView extends VerticalLayout {
                 || containsSearch(company.getWebsite(), keyword)
                 || containsSearch(company.getEmail(), keyword)
                 || containsSearch(company.getPhone(), keyword)
-                || containsSearch(company.getCity(), keyword)
-                || containsSearch(company.getProvince(), keyword)
-                || containsSearch(company.getCountry(), keyword)
+                || containsSearch(company.getCity() == null ? null : company.getCity().getName(), keyword)
+                || containsSearch(company.getProvince() == null ? null : company.getProvince().getName(), keyword)
+                || containsSearch(company.getCountry() == null ? null : company.getCountry().getName(), keyword)
                 || containsSearch(company.getAddress(), keyword)
                 || containsSearch(company.getNotes(), keyword);
+    }
+
+    private Country findCountryById(List<Country> countries, Country country) {
+        if (country == null || country.getId() == null) {
+            return null;
+        }
+        return countries.stream()
+                .filter(candidate -> Objects.equals(candidate.getId(), country.getId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Region findRegionById(List<Region> regions, Region region) {
+        if (region == null || region.getId() == null) {
+            return null;
+        }
+        return regions.stream()
+                .filter(candidate -> Objects.equals(candidate.getId(), region.getId()))
+                .findFirst()
+                .orElse(null);
     }
 
     private boolean containsSearch(String value, String keyword) {

@@ -5,11 +5,14 @@ import com.quadteknologi.crm.domain.entity.LeadItem;
 import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Company;
+import com.quadteknologi.crm.domain.entity.Country;
 import com.quadteknologi.crm.domain.entity.Person;
+import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.service.LeadService;
 import com.quadteknologi.crm.ui.component.ActivityTimeline;
+import com.quadteknologi.crm.ui.component.CurrencyField;
 import com.quadteknologi.crm.ui.component.KanbanBoard;
 import com.quadteknologi.crm.ui.layout.MainLayout;
 import com.vaadin.flow.component.Component;
@@ -31,7 +34,6 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.EmailField;
-import com.vaadin.flow.component.textfield.BigDecimalField;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
@@ -45,7 +47,6 @@ import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.RolesAllowed;
 
 import java.math.BigDecimal;
-import java.text.NumberFormat;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -55,14 +56,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+
 @RolesAllowed({"Administrator", "Manager", "Sales"})
 @PageTitle("Leads | Quad CRM")
 @Route(value = "leads", layout = MainLayout.class)
 public class LeadsView extends VerticalLayout {
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
-    private static final NumberFormat CURRENCY_FORMAT = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
-    private static final List<String> SOURCE_OPTIONS = List.of("Email", "Web", "Phone", "Direct");
 
     private final LeadService leadService;
     private final ContactService contactService;
@@ -157,6 +158,7 @@ public class LeadsView extends VerticalLayout {
 
         List<OptionValue> statuses = leadService.findPipelineStatuses();
         List<OptionValue> productTypes = leadService.findProductTypes();
+        List<OptionValue> sourceTypes = leadService.findSourceTypes();
         List<Company> companies = new ArrayList<>(leadService.findCompanies());
         List<Person> persons = new ArrayList<>(leadService.findPersons());
         if (editing) {
@@ -223,8 +225,9 @@ public class LeadsView extends VerticalLayout {
             }
         });
 
-        ComboBox<String> source = new ComboBox<>("Source");
-        source.setItems(sourceOptions(request.getSource()));
+        ComboBox<OptionValue> source = new ComboBox<>("Source");
+        source.setItems(sourceTypes);
+        source.setItemLabelGenerator(OptionValue::getName);
         source.setClearButtonVisible(true);
         source.setPlaceholder("Select source");
 
@@ -259,7 +262,10 @@ public class LeadsView extends VerticalLayout {
 
         binder.forField(source)
                 .asRequired("Source is required")
-                .bind(LeadService.CreateLeadRequest::getSource, LeadService.CreateLeadRequest::setSource);
+                .bind(
+                        value -> findSourceTypeByValue(sourceTypes, value.getSource()),
+                        (value, selectedSource) -> value.setSource(
+                                selectedSource == null ? null : selectedSource.getName()));
 
         binder.forField(assignedTo)
                 .asRequired("Assigned To is required")
@@ -373,10 +379,8 @@ public class LeadsView extends VerticalLayout {
         quantity.setValue(item.getQuantity());
         quantity.addValueChangeListener(event -> item.setQuantity(event.getValue()));
 
-        BigDecimalField unitPrice = new BigDecimalField("Estimated Unit Price");
-        unitPrice.setPrefixComponent(new Span("Rp"));
+        CurrencyField unitPrice = new CurrencyField("Estimated Unit Price");
         unitPrice.setValue(item.getEstimatedUnitPrice());
-        unitPrice.getElement().setAttribute("inputmode", "decimal");
         unitPrice.addValueChangeListener(event -> item.setEstimatedUnitPrice(event.getValue()));
 
         TextArea notes = new TextArea("Notes");
@@ -412,9 +416,62 @@ public class LeadsView extends VerticalLayout {
 
         TextField name = new TextField("Name");
         TextField industry = new TextField("Industry");
+        TextField website = new TextField("Website");
         EmailField email = new EmailField("Email");
         TextField phone = phoneField("Phone");
-        TextField city = new TextField("City");
+        ComboBox<Country> country = new ComboBox<>("Country");
+        ComboBox<Region> province = new ComboBox<>("Province");
+        ComboBox<Region> city = new ComboBox<>("City / Regency");
+        TextArea address = new TextArea("Address");
+        address.setMinHeight("90px");
+
+        boolean[] loadingForm = {true};
+        List<Country> countries = contactService.findActiveCountries();
+        country.setItems(countries);
+        country.setItemLabelGenerator(Country::getName);
+        country.setClearButtonVisible(true);
+
+        province.setItemLabelGenerator(Region::getName);
+        province.setClearButtonVisible(true);
+        province.setEnabled(false);
+
+        city.setItemLabelGenerator(Region::getName);
+        city.setClearButtonVisible(true);
+        city.setEnabled(false);
+
+        if (countries.size() == 1) {
+            company.setCountry(countries.get(0));
+            List<Region> provinces = contactService.findActiveProvinces(countries.get(0));
+            province.setItems(provinces);
+            province.setEnabled(!provinces.isEmpty());
+        }
+
+        country.addValueChangeListener(event -> {
+            if (loadingForm[0]) {
+                return;
+            }
+            Country selected = event.getValue();
+            province.clear();
+            city.clear();
+            city.setItems(List.of());
+            city.setEnabled(false);
+
+            List<Region> provinces = selected == null ? List.of() : contactService.findActiveProvinces(selected);
+            province.setItems(provinces);
+            province.setEnabled(!provinces.isEmpty());
+        });
+
+        province.addValueChangeListener(event -> {
+            if (loadingForm[0]) {
+                return;
+            }
+            Region selected = event.getValue();
+            city.clear();
+
+            List<Region> cities = selected == null ? List.of() : contactService.findActiveCities(selected);
+            city.setItems(cities);
+            city.setEnabled(!cities.isEmpty());
+        });
 
         binder.forField(name)
                 .asRequired("Name is required")
@@ -424,6 +481,9 @@ public class LeadsView extends VerticalLayout {
                 .asRequired("Industry is required")
                 .bind(Company::getIndustry, Company::setIndustry);
 
+        binder.forField(website)
+                .bind(Company::getWebsite, Company::setWebsite);
+
         binder.forField(email)
                 .asRequired("Email is required")
                 .bind(Company::getEmail, Company::setEmail);
@@ -432,11 +492,24 @@ public class LeadsView extends VerticalLayout {
                 .asRequired("Phone is required")
                 .bind(Company::getPhone, Company::setPhone);
 
+        binder.forField(country)
+                .asRequired("Country is required")
+                .bind(Company::getCountry, Company::setCountry);
+
+        binder.forField(province)
+                .asRequired("Province is required")
+                .bind(Company::getProvince, Company::setProvince);
+
         binder.forField(city)
-                .asRequired("City is required")
+                .asRequired("City / Regency is required")
                 .bind(Company::getCity, Company::setCity);
 
+        binder.forField(address)
+                .asRequired("Address is required")
+                .bind(Company::getAddress, Company::setAddress);
+
         binder.readBean(company);
+        loadingForm[0] = false;
 
         Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
             try {
@@ -451,11 +524,13 @@ public class LeadsView extends VerticalLayout {
                 showSuccess("Organization created");
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
             }
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        dialog.add(name, industry, email, phone, city, dialogActions(save, dialog));
+        dialog.add(name, industry, website, email, phone, country, province, city, address, dialogActions(save, dialog));
         dialog.open();
     }
 
@@ -473,9 +548,9 @@ public class LeadsView extends VerticalLayout {
         company.setItemLabelGenerator(Company::getName);
         company.setClearButtonVisible(true);
         EmailField email = new EmailField("Email");
+        TextField jobTitle = new TextField("Job Title");
         TextField phone = phoneField("Phone");
         TextField whatsapp = phoneField("WhatsApp");
-
         binder.forField(fullName)
                 .asRequired("Full name is required")
                 .bind(Person::getFullName, Person::setFullName);
@@ -483,6 +558,10 @@ public class LeadsView extends VerticalLayout {
         binder.forField(company)
                 .asRequired("Company name is required")
                 .bind(Person::getCompany, Person::setCompany);
+
+        binder.forField(jobTitle)
+                .asRequired("Job title is required")
+                .bind(Person::getJobTitle, Person::setJobTitle);
 
         binder.forField(email)
                 .asRequired("Email is required")
@@ -512,11 +591,13 @@ public class LeadsView extends VerticalLayout {
                 showSuccess("Person created");
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
             }
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        dialog.add(fullName, company, email, phone, whatsapp, dialogActions(save, dialog));
+        dialog.add(fullName, company, jobTitle, email, phone, whatsapp, dialogActions(save, dialog));
         dialog.open();
     }
 
@@ -774,11 +855,7 @@ public class LeadsView extends VerticalLayout {
         Binder<LeadService.ConvertLeadRequest> binder = new Binder<>(LeadService.ConvertLeadRequest.class);
         Dialog dialog = quickCreateDialog("Create Opportunity");
 
-        BigDecimalField estimatedAmount = new BigDecimalField("Estimated Amount");
-        estimatedAmount.setPrefixComponent(new Span("Rp"));
-        estimatedAmount.setClearButtonVisible(true);
-        estimatedAmount.setPlaceholder("0");
-        estimatedAmount.getElement().setAttribute("inputmode", "decimal");
+        CurrencyField estimatedAmount = new CurrencyField("Estimated Amount");
 
         IntegerField probability = new IntegerField("Probability");
         probability.setMin(0);
@@ -940,6 +1017,17 @@ public class LeadsView extends VerticalLayout {
                 .orElse(null);
     }
 
+    private OptionValue findSourceTypeByValue(List<OptionValue> sourceTypes, String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return sourceTypes.stream()
+                .filter(sourceType -> Objects.equals(sourceType.getCode(), value)
+                        || Objects.equals(sourceType.getName(), value))
+                .findFirst()
+                .orElse(null);
+    }
+
     private String initials(String value) {
         if (value == null || value.isBlank()) {
             return "?";
@@ -964,19 +1052,11 @@ public class LeadsView extends VerticalLayout {
     }
 
     private String formatAmountOrDash(BigDecimal amount) {
-        return amount == null ? "-" : CURRENCY_FORMAT.format(amount);
+        return formatRupiah(amount);
     }
 
     private String productTypeName(OptionValue productType, String fallbackCode) {
         return productType == null ? valueOrDash(fallbackCode) : productType.getName();
-    }
-
-    private List<String> sourceOptions(String currentSource) {
-        List<String> options = new ArrayList<>(SOURCE_OPTIONS);
-        if (currentSource != null && !currentSource.isBlank() && !options.contains(currentSource)) {
-            options.add(currentSource);
-        }
-        return options;
     }
 
     private TextField phoneField(String label) {

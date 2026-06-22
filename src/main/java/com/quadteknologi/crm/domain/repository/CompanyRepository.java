@@ -13,15 +13,18 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
     Optional<Company> findByPublicId(UUID publicId);
 
     @Override
-    @EntityGraph(attributePaths = {"createdBy", "updatedBy"})
+    @EntityGraph(attributePaths = {"country", "province", "city", "createdBy", "updatedBy"})
     Optional<Company> findById(Long id);
 
+    @EntityGraph(attributePaths = {"country", "province", "city"})
     List<Company> findAllByOrderByNameAsc();
 
+    @EntityGraph(attributePaths = {"country", "province", "city"})
     List<Company> findByCreatedByIdOrderByNameAsc(Long createdById);
 
     long countByCreatedById(Long createdById);
 
+    @EntityGraph(attributePaths = {"country", "province", "city"})
     List<Company> findByNameContainingIgnoreCaseOrderByNameAsc(String name);
 
     long countByIndustryIsNotNull();

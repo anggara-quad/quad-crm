@@ -5,6 +5,9 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+
+/src/main/frontend/generated/**
+
 ### STS ###
 .apt_generated
 .classpath
@@ -30,5 +33,7 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
+
 ### VS Code ###
 .vscode/
+/src/main/frontend/generated/flow/chunks/chunk-fc0c19c1b4bf256c298b0cc95d2df3747fa5439af312ec852c2797ddc549d743.js

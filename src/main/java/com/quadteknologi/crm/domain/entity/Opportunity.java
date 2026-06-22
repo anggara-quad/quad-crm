@@ -71,6 +71,12 @@ public class Opportunity extends AbstractAuditedEntity {
     @Column(name = "lost_reason", columnDefinition = "text")
     private String lostReason;
 
+    @Column(name = "so_number", length = 100)
+    private String soNumber;
+
+    @Column(name = "contract_po_number", length = 100)
+    private String contractPoNumber;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;
@@ -204,6 +210,22 @@ public class Opportunity extends AbstractAuditedEntity {
 
     public void setLostReason(String lostReason) {
         this.lostReason = lostReason;
+    }
+
+    public String getSoNumber() {
+        return soNumber;
+    }
+
+    public void setSoNumber(String soNumber) {
+        this.soNumber = soNumber;
+    }
+
+    public String getContractPoNumber() {
+        return contractPoNumber;
+    }
+
+    public void setContractPoNumber(String contractPoNumber) {
+        this.contractPoNumber = contractPoNumber;
     }
 
     public User getCreatedBy() {

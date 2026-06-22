@@ -39,6 +39,7 @@ public class OpportunityService {
     private static final String LEAD_STATUS_GROUP = "LEAD_STATUS";
     private static final String PRODUCT_TYPE_GROUP = "PRODUCT_TYPE";
     private static final String ACTIVITY_TYPE_GROUP = "ACTIVITY_TYPE";
+    private static final String WON_STATUS_CODE = "WON";
     private static final String CREATED_ACTIVITY_TYPE = "CREATED";
     private static final String STATUS_CHANGE_ACTIVITY_TYPE = "STATUS_CHANGE";
 
@@ -184,6 +185,11 @@ public class OpportunityService {
 
     @Transactional
     public Opportunity updateOpportunityStatus(Long id, OptionValue status) {
+        return updateOpportunityStatus(id, status, null, null);
+    }
+
+    @Transactional
+    public Opportunity updateOpportunityStatus(Long id, OptionValue status, String soNumber, String contractPoNumber) {
         Opportunity opportunity = findOpportunity(id);
         String previousStatusCode = opportunity.getStatusCode();
         String nextStatusCode = status == null ? "PRODUCT_SOLUTIONING" : status.getCode();
@@ -194,6 +200,8 @@ public class OpportunityService {
 
         opportunity.setStatusGroupCode(OPPORTUNITY_STATUS_GROUP);
         opportunity.setStatusCode(nextStatusCode);
+        applyWonDocumentNumbers(opportunity, soNumber, contractPoNumber);
+        validateWonDocumentNumbers(opportunity);
         applyWinLossDates(opportunity, status);
         Opportunity savedOpportunity = opportunityRepository.save(opportunity);
         activityRepository.save(createStatusChangedActivity(savedOpportunity, previousStatusCode, nextStatusCode));
@@ -318,8 +326,34 @@ public class OpportunityService {
         opportunity.setAssignedTo(assignedTo);
         opportunity.setDescription(trimToNull(request.getDescription()));
         opportunity.setNotes(trimToNull(request.getNotes()));
+        opportunity.setSoNumber(trimToNull(request.getSoNumber()));
+        opportunity.setContractPoNumber(trimToNull(request.getContractPoNumber()));
         opportunity.setUpdatedBy(assignedTo);
+        validateWonDocumentNumbers(opportunity);
         applyWinLossDates(opportunity, request.getStatus());
+    }
+
+    private void applyWonDocumentNumbers(Opportunity opportunity, String soNumber, String contractPoNumber) {
+        String trimmedSoNumber = trimToNull(soNumber);
+        String trimmedContractPoNumber = trimToNull(contractPoNumber);
+        if (trimmedSoNumber != null) {
+            opportunity.setSoNumber(trimmedSoNumber);
+        }
+        if (trimmedContractPoNumber != null) {
+            opportunity.setContractPoNumber(trimmedContractPoNumber);
+        }
+    }
+
+    private void validateWonDocumentNumbers(Opportunity opportunity) {
+        if (!WON_STATUS_CODE.equals(opportunity.getStatusCode())) {
+            return;
+        }
+        if (trimToNull(opportunity.getSoNumber()) == null) {
+            throw new IllegalArgumentException("SO Number is required when opportunity is Won");
+        }
+        if (trimToNull(opportunity.getContractPoNumber()) == null) {
+            throw new IllegalArgumentException("Contract / PO Number is required when opportunity is Won");
+        }
     }
 
     private Lead resolveLead(OpportunityRequest request, Opportunity currentOpportunity) {
@@ -478,6 +512,8 @@ public class OpportunityService {
         private User assignedTo;
         private String description;
         private String notes;
+        private String soNumber;
+        private String contractPoNumber;
         private List<OpportunityItemRequest> items = new java.util.ArrayList<>();
 
         public String getTitle() {
@@ -566,6 +602,22 @@ public class OpportunityService {
 
         public void setNotes(String notes) {
             this.notes = notes;
+        }
+
+        public String getSoNumber() {
+            return soNumber;
+        }
+
+        public void setSoNumber(String soNumber) {
+            this.soNumber = soNumber;
+        }
+
+        public String getContractPoNumber() {
+            return contractPoNumber;
+        }
+
+        public void setContractPoNumber(String contractPoNumber) {
+            this.contractPoNumber = contractPoNumber;
         }
 
         public List<OpportunityItemRequest> getItems() {

@@ -927,6 +927,7 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
 .pipeline-form-detail vaadin-text-field,
 .pipeline-form-detail vaadin-email-field,
 .pipeline-form-detail vaadin-text-area,
+.pipeline-form-detail vaadin-custom-field,
 .pipeline-form-detail vaadin-combo-box {
     width: 100%;
     --vaadin-input-field-height: 36px;
@@ -1006,6 +1007,7 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
 .sales-item-row vaadin-text-field,
 .sales-item-row vaadin-integer-field,
 .sales-item-row vaadin-big-decimal-field,
+.sales-item-row vaadin-custom-field,
 .sales-item-row vaadin-text-area {
     width: 100%;
 }
@@ -1066,11 +1068,18 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
 
 .quick-create-dialog {
     box-sizing: border-box;
-    width: min(420px, calc(100vw - 32px));
+    width: min(720px, calc(100vw - 32px));
+}
+
+.quick-create-dialog::part(content) {
+    box-sizing: border-box;
+    width: min(720px, calc(100vw - 32px));
 }
 
 .quick-create-dialog vaadin-text-field,
 .quick-create-dialog vaadin-email-field,
+.quick-create-dialog vaadin-text-area,
+.quick-create-dialog vaadin-custom-field,
 .quick-create-dialog vaadin-combo-box {
     width: 100%;
     --vaadin-input-field-height: 36px;
