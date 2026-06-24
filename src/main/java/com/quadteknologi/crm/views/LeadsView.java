@@ -15,6 +15,7 @@ import com.quadteknologi.crm.ui.component.ActivityTimeline;
 import com.quadteknologi.crm.ui.component.CurrencyField;
 import com.quadteknologi.crm.ui.component.KanbanBoard;
 import com.quadteknologi.crm.ui.layout.MainLayout;
+import com.vaadin.componentfactory.addons.inputmask.InputMask;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
@@ -419,6 +420,7 @@ public class LeadsView extends VerticalLayout {
         TextField website = new TextField("Website");
         EmailField email = new EmailField("Email");
         TextField phone = phoneField("Phone");
+        new InputMask("+000000000000000").extend(phone);
         ComboBox<Country> country = new ComboBox<>("Country");
         ComboBox<Region> province = new ComboBox<>("Province");
         ComboBox<Region> city = new ComboBox<>("City / Regency");
@@ -550,7 +552,9 @@ public class LeadsView extends VerticalLayout {
         EmailField email = new EmailField("Email");
         TextField jobTitle = new TextField("Job Title");
         TextField phone = phoneField("Phone");
+
         TextField whatsapp = phoneField("WhatsApp");
+
         binder.forField(fullName)
                 .asRequired("Full name is required")
                 .bind(Person::getFullName, Person::setFullName);
@@ -1062,7 +1066,8 @@ public class LeadsView extends VerticalLayout {
     private TextField phoneField(String label) {
         TextField field = new TextField(label);
         field.setClearButtonVisible(true);
-        field.setPlaceholder("+62 812 3456 7890");
+        field.setPlaceholder("+6281234567890");
+        new InputMask("+000000000000000").extend(field);
         field.getElement().setAttribute("inputmode", "tel");
         field.getElement().setAttribute("autocomplete", "tel");
         return field;

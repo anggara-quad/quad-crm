@@ -32,11 +32,13 @@ import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
 import com.vaadin.flow.data.binder.ValidationException;
 import com.vaadin.flow.data.value.ValueChangeMode;
+import com.vaadin.flow.function.ValueProvider;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.RolesAllowed;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.util.Comparator;
 import java.util.Locale;
 import java.util.List;
 import java.util.Objects;
@@ -150,12 +152,13 @@ public class ContactView extends VerticalLayout {
 
         personGrid.addClassName("contact-grid");
         personGrid.setSizeFull();
-        personGrid.addColumn(Person::getFullName).setHeader("Name").setAutoWidth(true).setFlexGrow(1);
-        personGrid.addColumn(person -> person.getCompany() == null ? "-" : person.getCompany().getName())
-                .setHeader("Organization").setAutoWidth(true).setFlexGrow(1);
-        personGrid.addColumn(Person::getJobTitle).setHeader("Job Title").setAutoWidth(true);
-        personGrid.addColumn(Person::getEmail).setHeader("Email").setAutoWidth(true);
-        personGrid.addColumn(Person::getPhone).setHeader("Phone").setAutoWidth(true);
+        addSortableTextColumn(personGrid, Person::getFullName, "Name").setFlexGrow(1);
+        addSortableTextColumn(personGrid,
+                person -> person.getCompany() == null ? null : person.getCompany().getName(),
+                "Organization").setFlexGrow(1);
+        addSortableTextColumn(personGrid, Person::getJobTitle, "Job Title");
+        addSortableTextColumn(personGrid, Person::getEmail, "Email");
+        addSortableTextColumn(personGrid, Person::getPhone, "Phone");
         personGrid.asSingleSelect().addValueChangeListener(event -> {
             if (event.getValue() != null) {
                 openPersonForm(event.getValue());
@@ -272,16 +275,19 @@ public class ContactView extends VerticalLayout {
 
         organizationGrid.addClassName("contact-grid");
         organizationGrid.setSizeFull();
-        organizationGrid.addColumn(Company::getName).setHeader("Name").setAutoWidth(true).setFlexGrow(1);
-        organizationGrid.addColumn(Company::getIndustry).setHeader("Industry").setAutoWidth(true);
-        organizationGrid.addColumn(Company::getEmail).setHeader("Email").setAutoWidth(true);
-        organizationGrid.addColumn(Company::getPhone).setHeader("Phone").setAutoWidth(true);
-        organizationGrid.addColumn(company -> company.getCountry() == null ? "-" : company.getCountry().getName())
-                .setHeader("Country").setAutoWidth(true);
-        organizationGrid.addColumn(company -> company.getProvince() == null ? "-" : company.getProvince().getName())
-                .setHeader("Province").setAutoWidth(true);
-        organizationGrid.addColumn(company -> company.getCity() == null ? "-" : company.getCity().getName())
-                .setHeader("City / Regency").setAutoWidth(true);
+        addSortableTextColumn(organizationGrid, Company::getName, "Name").setFlexGrow(1);
+        addSortableTextColumn(organizationGrid, Company::getIndustry, "Industry");
+        addSortableTextColumn(organizationGrid, Company::getEmail, "Email");
+        addSortableTextColumn(organizationGrid, Company::getPhone, "Phone");
+        addSortableTextColumn(organizationGrid,
+                company -> company.getCountry() == null ? null : company.getCountry().getName(),
+                "Country");
+        addSortableTextColumn(organizationGrid,
+                company -> company.getProvince() == null ? null : company.getProvince().getName(),
+                "Province");
+        addSortableTextColumn(organizationGrid,
+                company -> company.getCity() == null ? null : company.getCity().getName(),
+                "City / Regency");
         organizationGrid.asSingleSelect().addValueChangeListener(event -> {
             if (event.getValue() != null) {
                 openOrganizationForm(event.getValue());
@@ -482,7 +488,7 @@ public class ContactView extends VerticalLayout {
     private TextField phoneField(String label) {
         TextField field = new TextField(label);
         field.setClearButtonVisible(true);
-        field.setPlaceholder("+62 812 3456 7890");
+        field.setPlaceholder("+6281234567890");
         field.getElement().setAttribute("inputmode", "tel");
         field.getElement().setAttribute("autocomplete", "tel");
         new InputMask("+000000000000000").extend(field);
@@ -495,6 +501,16 @@ public class ContactView extends VerticalLayout {
         actions.setPadding(false);
         actions.setSpacing(true);
         return actions;
+    }
+
+    private <T> Grid.Column<T> addSortableTextColumn(Grid<T> grid, ValueProvider<T, String> valueProvider,
+            String header) {
+        return grid.addColumn(item -> displayText(valueProvider.apply(item)))
+                .setHeader(header)
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(item -> sortText(valueProvider.apply(item)),
+                        String.CASE_INSENSITIVE_ORDER));
     }
 
     private void refreshPersons() {
@@ -558,6 +574,14 @@ public class ContactView extends VerticalLayout {
 
     private boolean containsSearch(String value, String keyword) {
         return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
+    }
+
+    private String displayText(String value) {
+        return value == null || value.isBlank() ? "-" : value;
+    }
+
+    private String sortText(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private String normalizeSearch(String value) {

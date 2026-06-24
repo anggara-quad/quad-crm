@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -14,8 +15,10 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    private static final int REMEMBER_ME_SECONDS = 14 * 24 * 60 * 60;
+
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, UserDetailsService userDetailsService) throws Exception {
         return http
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
@@ -28,6 +31,11 @@ public class SecurityConfig {
                                 "/favicon.svg",
                                 "/icons/**")
                         .permitAll())
+                .rememberMe(rememberMe -> rememberMe
+                        .key("quad-crm-remember-me")
+                        .userDetailsService(userDetailsService)
+                        .tokenValiditySeconds(REMEMBER_ME_SECONDS)
+                        .alwaysRemember(true))
                 .with(VaadinSecurityConfigurer.vaadin(), configurer -> {
                     configurer.loginView(LoginView.class);
                 }).build();
