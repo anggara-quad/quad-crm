@@ -17,7 +17,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @Viewport("width=device-width, initial-scale=1")
 @StyleSheet(Aura.STYLESHEET)
 @StyleSheet("styles.css")
-@PWA(name = "Quad CRM", shortName = "Q-CRM", iconPath = "images/icon.ico")
+@PWA(name = "Quad CRM", shortName = "Q-CRM", iconPath = "icons/icon.png")
 public class Application implements AppShellConfigurator {
 
     public static void main(String[] args) {
