@@ -47,6 +47,9 @@ public class Opportunity extends AbstractAuditedEntity {
     @Column(name = "estimated_amount", precision = 18, scale = 2)
     private BigDecimal estimatedAmount;
 
+    @Column(nullable = false, precision = 18, scale = 2)
+    private BigDecimal margin = BigDecimal.ZERO;
+
     private Integer probability;
 
     @Column(name = "expected_close_date")
@@ -146,6 +149,14 @@ public class Opportunity extends AbstractAuditedEntity {
 
     public void setEstimatedAmount(BigDecimal estimatedAmount) {
         this.estimatedAmount = estimatedAmount;
+    }
+
+    public BigDecimal getMargin() {
+        return margin;
+    }
+
+    public void setMargin(BigDecimal margin) {
+        this.margin = margin;
     }
 
     public Integer getProbability() {

@@ -9,6 +9,8 @@ import com.quadteknologi.crm.domain.entity.Country;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.domain.entity.User;
+import com.quadteknologi.crm.security.AppViewAccess;
+import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.service.LeadService;
 import com.quadteknologi.crm.ui.component.ActivityTimeline;
@@ -22,6 +24,7 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -30,6 +33,7 @@ import com.vaadin.flow.component.html.Hr;
 import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
+import com.vaadin.flow.component.masterdetaillayout.MasterDetailLayout;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
@@ -40,47 +44,86 @@ import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
 import com.vaadin.flow.data.binder.ValidationException;
+import com.vaadin.flow.data.renderer.LitRenderer;
 import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.router.BeforeEnterEvent;
+import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.QueryParameters;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.RolesAllowed;
+import jakarta.annotation.security.PermitAll;
 
 import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
 
-@RolesAllowed({"Administrator", "Manager", "Sales"})
+@PermitAll
 @PageTitle("Leads | Quad CRM")
 @Route(value = "leads", layout = MainLayout.class)
-public class LeadsView extends VerticalLayout {
+public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
 
     private final LeadService leadService;
     private final ContactService contactService;
+    private final ViewAccessService viewAccessService;
     private KanbanBoard<Lead> kanbanBoard;
+    private Component activeContent;
+    private MasterDetailLayout gridLayout;
+    private List<OptionValue> pipelineStatuses = List.of();
+    private Map<String, List<Lead>> pipelineLeadsByStatus = Map.of();
+    private boolean pipelineDataLoaded;
+    private ViewMode viewMode = ViewMode.KANBAN;
     private String searchTerm = "";
 
-    public LeadsView(LeadService leadService, ContactService contactService) {
+    private enum ViewMode {
+        KANBAN,
+        GRID
+    }
+
+    public LeadsView(
+            LeadService leadService,
+            ContactService contactService,
+            ViewAccessService viewAccessService) {
         this.leadService = leadService;
         this.contactService = contactService;
+        this.viewAccessService = viewAccessService;
 
         addClassName("page-view");
         setPadding(false);
         setSpacing(false);
         setSizeFull();
 
-        add(createHeader(), createKanbanBoard());
+        activeContent = createPipelineContent();
+        add(createHeader(), activeContent);
+    }
+
+    @Override
+    public void beforeEnter(BeforeEnterEvent event) {
+        viewAccessService.checkBeforeEnter(event, AppViewAccess.LEADS);
+        event.getLocation()
+                .getQueryParameters()
+                .getSingleParameter("lead")
+                .flatMap(this::parseUuid)
+                .ifPresent(leadPublicId -> {
+                    try {
+                        Lead lead = leadService.findLead(leadPublicId);
+                        setDetail(createLeadDetail(lead));
+                    } catch (RuntimeException exception) {
+                        showError("Lead was not found");
+                    }
+                });
     }
 
     private Component createHeader() {
@@ -100,7 +143,7 @@ public class LeadsView extends VerticalLayout {
 
         Div actions = new Div();
         actions.addClassName("pipeline-header-actions");
-        actions.add(createSearchField("Search leads"), createLeadButton);
+        actions.add(createViewToggle(), createSearchField("Search leads"), createLeadButton);
 
         header.add(titleGroup, actions);
         return header;
@@ -120,9 +163,56 @@ public class LeadsView extends VerticalLayout {
         return search;
     }
 
+    private Component createViewToggle() {
+        Div toggle = new Div();
+        toggle.addClassName("pipeline-view-toggle");
+
+        Button kanbanButton = new Button("Kanban");
+        Button gridButton = new Button("Grid");
+        kanbanButton.addClassName("pipeline-view-toggle-button");
+        gridButton.addClassName("pipeline-view-toggle-button");
+        kanbanButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        gridButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+
+        kanbanButton.addClickListener(event -> switchViewMode(ViewMode.KANBAN, kanbanButton, gridButton));
+        gridButton.addClickListener(event -> switchViewMode(ViewMode.GRID, kanbanButton, gridButton));
+        updateViewToggleButtons(kanbanButton, gridButton);
+
+        toggle.add(kanbanButton, gridButton);
+        return toggle;
+    }
+
+    private void switchViewMode(ViewMode nextMode, Button kanbanButton, Button gridButton) {
+        if (viewMode == nextMode) {
+            return;
+        }
+        viewMode = nextMode;
+        updateViewToggleButtons(kanbanButton, gridButton);
+        refreshKanbanBoard();
+    }
+
+    private void updateViewToggleButtons(Button kanbanButton, Button gridButton) {
+        updateViewToggleButton(kanbanButton, viewMode == ViewMode.KANBAN);
+        updateViewToggleButton(gridButton, viewMode == ViewMode.GRID);
+    }
+
+    private void updateViewToggleButton(Button button, boolean active) {
+        button.getElement().setAttribute("aria-pressed", String.valueOf(active));
+        if (active) {
+            button.addClassName("is-active");
+        } else {
+            button.removeClassName("is-active");
+        }
+    }
+
+    private Component createPipelineContent() {
+        return viewMode == ViewMode.KANBAN ? createKanbanBoard() : createGridView();
+    }
+
     private Component createKanbanBoard() {
-        List<OptionValue> statuses = leadService.findPipelineStatuses();
-        Map<String, List<Lead>> leadsByStatus = filterLeadsBySearch(leadService.findPipelineLeadsByStatus());
+        ensurePipelineDataLoaded();
+        List<OptionValue> statuses = pipelineStatuses;
+        Map<String, List<Lead>> leadsByStatus = filterLeadsBySearch(pipelineLeadsByStatus);
 
         kanbanBoard = new KanbanBoard<>(
                 "lead",
@@ -135,6 +225,166 @@ public class LeadsView extends VerticalLayout {
                 this::createLeadDetail,
                 this::openCreateLeadForm);
         return kanbanBoard;
+    }
+
+    private Component createGridView() {
+        kanbanBoard = null;
+        gridLayout = new MasterDetailLayout();
+        gridLayout.addClassName("kanban-master-detail");
+        gridLayout.setSizeFull();
+        gridLayout.setMasterMinSize("720px");
+        gridLayout.setDetailSize("360px");
+        gridLayout.setOverlayMode(MasterDetailLayout.OverlayMode.DRAWER);
+        gridLayout.setForceOverlay(true);
+        gridLayout.addBackdropClickListener(event -> clearDetail());
+        gridLayout.addDetailEscapePressListener(event -> clearDetail());
+
+        Grid<Lead> grid = new Grid<>(Lead.class, false);
+        grid.addClassName("pipeline-grid");
+        grid.setSizeFull();
+        grid.addColumn(leadIdentityRenderer())
+                .setHeader("Lead")
+                .setAutoWidth(true)
+                .setFlexGrow(2)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        lead -> sortText(lead.getTitle()),
+                        String.CASE_INSENSITIVE_ORDER));
+        grid.addColumn(leadStatusRenderer())
+                .setHeader("Status")
+                .setAutoWidth(true)
+                .setFlexGrow(0)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        this::leadStatusName,
+                        String.CASE_INSENSITIVE_ORDER));
+        grid.addColumn(leadSourceRenderer())
+                .setHeader("Source / Assigned")
+                .setAutoWidth(true)
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator
+                        .comparing((Lead lead) -> sortText(lead.getSource()), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(lead -> sortText(lead.getAssignedTo() == null
+                                ? null
+                                : lead.getAssignedTo().getFullName()), String.CASE_INSENSITIVE_ORDER));
+        grid.addColumn(leadActivityRenderer())
+                .setHeader("Activity")
+                .setAutoWidth(true)
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        Lead::getCreatedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())));
+        grid.addColumn(leadOpenRenderer()).setHeader("").setAutoWidth(true).setFlexGrow(0);
+        grid.setItems(currentLeads());
+        grid.asSingleSelect().addValueChangeListener(event -> {
+            if (event.getValue() != null) {
+                setDetail(createLeadDetail(leadService.findLead(event.getValue().getId())));
+            }
+        });
+
+        gridLayout.setMaster(grid);
+        return gridLayout;
+    }
+
+    private LitRenderer<Lead> leadIdentityRenderer() {
+        return LitRenderer.<Lead>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.title}</span>
+                  <span class="pipeline-grid-secondary">${item.meta}</span>
+                </div>
+                """)
+                .withProperty("title", lead -> valueOrDash(lead.getTitle()))
+                .withProperty("meta", lead -> displayPersonName(lead) + " | " + displayCompanyName(lead));
+    }
+
+    private LitRenderer<Lead> leadStatusRenderer() {
+        return LitRenderer.<Lead>of("""
+                <span class="pipeline-grid-status-badge ${item.colorClass}">${item.status}</span>
+                """)
+                .withProperty("status", this::leadStatusName)
+                .withProperty("colorClass", lead -> "kanban-color-" + normalizeColor(
+                        Optional.ofNullable(lead.getStatus()).map(OptionValue::getColor).orElse(null)));
+    }
+
+    private LitRenderer<Lead> leadSourceRenderer() {
+        return LitRenderer.<Lead>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.source}</span>
+                  <span class="pipeline-grid-secondary">${item.assigned}</span>
+                </div>
+                """)
+                .withProperty("source", lead -> valueOrDash(lead.getSource()))
+                .withProperty("assigned", lead -> lead.getAssignedTo() == null
+                        ? "Unassigned"
+                        : lead.getAssignedTo().getFullName());
+    }
+
+    private LitRenderer<Lead> leadActivityRenderer() {
+        return LitRenderer.<Lead>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.conversion}</span>
+                  <span class="pipeline-grid-secondary">${item.created}</span>
+                </div>
+                """)
+                .withProperty("conversion", this::conversionLabel)
+                .withProperty("created", lead -> lead.getCreatedAt() == null
+                        ? "-"
+                        : "Created " + lead.getCreatedAt().format(DATE_FORMAT));
+    }
+
+    private LitRenderer<Lead> leadOpenRenderer() {
+        return LitRenderer.<Lead>of("""
+                <button class="pipeline-grid-open-action" @click="${openLead}">Open</button>
+                """)
+                .withFunction("openLead", lead -> setDetail(createLeadDetail(leadService.findLead(lead.getId()))));
+    }
+
+    private Component createLeadGridIdentity(Lead lead) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span title = new Span(lead.getTitle());
+        title.addClassName("pipeline-grid-primary");
+        Span meta = new Span(displayPersonName(lead) + " | " + displayCompanyName(lead));
+        meta.addClassName("pipeline-grid-secondary");
+
+        cell.add(title, meta);
+        return cell;
+    }
+
+    private Component createLeadStatusBadge(Lead lead) {
+        Span badge = new Span(Optional.ofNullable(lead.getStatus()).map(OptionValue::getName).orElse(lead.getStatusCode()));
+        badge.addClassNames("pipeline-grid-status-badge", "kanban-color-" + normalizeColor(
+                Optional.ofNullable(lead.getStatus()).map(OptionValue::getColor).orElse(null)));
+        return badge;
+    }
+
+    private Component createLeadGridSource(Lead lead) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span source = new Span(valueOrDash(lead.getSource()));
+        source.addClassName("pipeline-grid-primary");
+        Span assigned = new Span(lead.getAssignedTo() == null ? "Unassigned" : lead.getAssignedTo().getFullName());
+        assigned.addClassName("pipeline-grid-secondary");
+
+        cell.add(source, assigned);
+        return cell;
+    }
+
+    private Component createLeadGridActivity(Lead lead) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span converted = new Span(conversionLabel(lead));
+        converted.addClassName("pipeline-grid-primary");
+        Span created = new Span(lead.getCreatedAt() == null ? "-" : "Created " + lead.getCreatedAt().format(DATE_FORMAT));
+        created.addClassName("pipeline-grid-secondary");
+
+        cell.add(converted, created);
+        return cell;
     }
 
     private void openCreateLeadForm(OptionValue defaultStatus) {
@@ -297,7 +547,7 @@ public class LeadsView extends VerticalLayout {
                 initialActivityNote);
 
         detail.add(formBody, createLeadFormActions(lead, request, binder));
-        kanbanBoard.setDetail(detail);
+        setDetail(detail);
     }
 
     private LeadService.CreateLeadRequest createRequestFromLead(Lead lead) {
@@ -532,7 +782,9 @@ public class LeadsView extends VerticalLayout {
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        dialog.add(name, industry, website, email, phone, country, province, city, address, dialogActions(save, dialog));
+        dialog.add(
+                quickCreateBody(name, industry, website, email, phone, country, province, city, address),
+                dialogActions(save, dialog));
         dialog.open();
     }
 
@@ -601,7 +853,9 @@ public class LeadsView extends VerticalLayout {
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        dialog.add(fullName, company, jobTitle, email, phone, whatsapp, dialogActions(save, dialog));
+        dialog.add(
+                quickCreateBody(fullName, company, jobTitle, email, phone, whatsapp),
+                dialogActions(save, dialog));
         dialog.open();
     }
 
@@ -623,12 +877,19 @@ public class LeadsView extends VerticalLayout {
         return dialog;
     }
 
+    private Component quickCreateBody(Component... fields) {
+        Div body = new Div();
+        body.addClassName("quick-create-body");
+        body.add(fields);
+        return body;
+    }
+
     private Component dialogActions(Button save, Dialog dialog) {
         Button cancel = new Button("Cancel", event -> dialog.close());
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
         HorizontalLayout actions = new HorizontalLayout(save, cancel);
-        actions.addClassName("pipeline-form-actions");
+        actions.addClassNames("pipeline-form-actions", "quick-create-footer");
         actions.setPadding(false);
         actions.setSpacing(true);
         return actions;
@@ -637,7 +898,7 @@ public class LeadsView extends VerticalLayout {
     private Div createLeadFormShell(String titleText, String subtitleText, boolean editing) {
         Div detail = new Div();
         detail.addClassName("pipeline-form-detail");
-        kanbanBoard.setDetailSize("430px");
+        setDetailSize("430px");
 
         Div header = new Div();
         header.addClassName("pipeline-detail-header");
@@ -648,7 +909,7 @@ public class LeadsView extends VerticalLayout {
         subtitle.addClassName("pipeline-form-subtitle");
         titleGroup.add(title, subtitle);
 
-        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> kanbanBoard.setDetail(null));
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> clearDetail());
         close.addClassName("pipeline-detail-close");
         close.getElement().setAttribute("aria-label", editing ? "Close edit lead form" : "Close create lead form");
 
@@ -675,9 +936,9 @@ public class LeadsView extends VerticalLayout {
                 Lead savedLead = editing
                         ? leadService.updateLead(lead.getId(), request)
                         : leadService.createLead(request);
-                refreshKanbanBoard();
+                refreshPipelineDataAndBoard();
                 showSuccess(editing ? "Lead updated" : "Lead created");
-                kanbanBoard.setDetail(createLeadDetail(savedLead));
+                setDetail(createLeadDetail(savedLead));
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
             } catch (IllegalArgumentException exception) {
@@ -686,7 +947,7 @@ public class LeadsView extends VerticalLayout {
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        Button cancel = new Button("Cancel", event -> kanbanBoard.setDetail(null));
+        Button cancel = new Button("Cancel", event -> clearDetail());
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
         HorizontalLayout actions = new HorizontalLayout(save, cancel);
@@ -697,8 +958,58 @@ public class LeadsView extends VerticalLayout {
     }
 
     private void refreshKanbanBoard() {
-        remove(kanbanBoard);
-        add(createKanbanBoard());
+        if (activeContent != null) {
+            remove(activeContent);
+        }
+        activeContent = createPipelineContent();
+        add(activeContent);
+    }
+
+    private void refreshPipelineDataAndBoard() {
+        pipelineDataLoaded = false;
+        refreshKanbanBoard();
+    }
+
+    private void ensurePipelineDataLoaded() {
+        if (pipelineDataLoaded) {
+            return;
+        }
+        pipelineStatuses = leadService.findPipelineStatuses();
+        pipelineLeadsByStatus = leadService.findPipelineLeadsByStatus();
+        pipelineDataLoaded = true;
+    }
+
+    private List<Lead> currentLeads() {
+        ensurePipelineDataLoaded();
+        Map<String, List<Lead>> leadsByStatus = filterLeadsBySearch(pipelineLeadsByStatus);
+        return pipelineStatuses
+                .stream()
+                .flatMap(status -> leadsByStatus.getOrDefault(status.getCode(), List.of()).stream())
+                .toList();
+    }
+
+    private void setDetail(Component detail) {
+        if (viewMode == ViewMode.KANBAN && kanbanBoard != null) {
+            kanbanBoard.setDetail(detail);
+            return;
+        }
+        if (gridLayout == null) {
+            return;
+        }
+        gridLayout.setDetail(detail);
+    }
+
+    private void clearDetail() {
+        setDetail(null);
+    }
+
+    private void setDetailSize(String size) {
+        if (viewMode == ViewMode.KANBAN && kanbanBoard != null) {
+            kanbanBoard.setDetailSize(size);
+        }
+        if (gridLayout != null) {
+            gridLayout.setDetailSize(size);
+        }
     }
 
     private Map<String, List<Lead>> filterLeadsBySearch(Map<String, List<Lead>> leadsByStatus) {
@@ -754,9 +1065,7 @@ public class LeadsView extends VerticalLayout {
 
         Div detail = new Div();
         detail.addClassName("pipeline-detail");
-        if (kanbanBoard != null) {
-            kanbanBoard.setDetailSize("360px");
-        }
+        setDetailSize("360px");
 
         Div detailHeader = new Div();
         detailHeader.addClassName("pipeline-detail-header");
@@ -771,7 +1080,7 @@ public class LeadsView extends VerticalLayout {
         Button edit = new Button("Edit", VaadinIcon.EDIT.create(), event -> openEditLeadForm(lead));
         edit.addClassName("pipeline-detail-edit");
 
-        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> kanbanBoard.setDetail(null));
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> clearDetail());
         close.addClassName("pipeline-detail-close");
         close.getElement().setAttribute("aria-label", "Close lead detail");
 
@@ -823,9 +1132,9 @@ public class LeadsView extends VerticalLayout {
             }
 
             Lead updatedLead = leadService.updateLeadStatus(lead.getId(), event.getValue());
-            refreshKanbanBoard();
+            refreshPipelineDataAndBoard();
             showSuccess("Lead moved to " + event.getValue().getName());
-            kanbanBoard.setDetail(createLeadDetail(updatedLead));
+            setDetail(createLeadDetail(updatedLead));
         });
 
         return status;
@@ -900,13 +1209,15 @@ public class LeadsView extends VerticalLayout {
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        dialog.add(estimatedAmount, probability, expectedClose, dialogActions(save, dialog));
+        dialog.add(
+                quickCreateBody(estimatedAmount, probability, expectedClose),
+                dialogActions(save, dialog));
         dialog.open();
     }
 
     private void navigateToOpportunity(Opportunity opportunity) {
         UI.getCurrent().navigate(OpportunitiesView.class,
-                QueryParameters.of("opportunity", String.valueOf(opportunity.getId())));
+                QueryParameters.of("opportunity", String.valueOf(opportunity.getPublicId())));
     }
 
     private Component detailRow(String label, String value) {
@@ -984,6 +1295,10 @@ public class LeadsView extends VerticalLayout {
         return valueOrFallback(lead.getRawCompanyName(), "No company");
     }
 
+    private String leadStatusName(Lead lead) {
+        return lead.getStatus() == null ? valueOrDash(lead.getStatusCode()) : lead.getStatus().getName();
+    }
+
     private String displayLeadEmail(Lead lead) {
         if (lead.getPerson() != null && lead.getPerson().getEmail() != null
                 && !lead.getPerson().getEmail().isBlank()) {
@@ -1055,6 +1370,10 @@ public class LeadsView extends VerticalLayout {
         return value == null ? "" : value;
     }
 
+    private String sortText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     private String formatAmountOrDash(BigDecimal amount) {
         return formatRupiah(amount);
     }
@@ -1086,6 +1405,14 @@ public class LeadsView extends VerticalLayout {
 
     private String normalizeColor(String color) {
         return color == null || color.isBlank() ? "default" : color.toLowerCase().replace('_', '-');
+    }
+
+    private Optional<UUID> parseUuid(String value) {
+        try {
+            return Optional.of(UUID.fromString(value));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
     }
 
     private void showSuccess(String message) {

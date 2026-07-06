@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -109,6 +110,12 @@ public class OpportunityService {
 
     public Opportunity findOpportunity(Long id) {
         Opportunity opportunity = opportunityRepository.findById(id).orElseThrow();
+        dataAccessService.assertCanAccessCreatedBy("opportunity", opportunity.getCreatedBy());
+        return opportunity;
+    }
+
+    public Opportunity findOpportunity(UUID publicId) {
+        Opportunity opportunity = opportunityRepository.findByPublicId(publicId).orElseThrow();
         dataAccessService.assertCanAccessCreatedBy("opportunity", opportunity.getCreatedBy());
         return opportunity;
     }
@@ -308,6 +315,13 @@ public class OpportunityService {
         return value;
     }
 
+    private BigDecimal requiredNonNegativeAmount(BigDecimal amount, String label) {
+        if (amount == null) {
+            throw new IllegalArgumentException(label + " is required");
+        }
+        return nonNegativeAmount(amount, label);
+    }
+
     private void applyRequest(Opportunity opportunity, OpportunityRequest request) {
         Lead lead = resolveLead(request, opportunity);
         Person person = resolvePerson(request);
@@ -321,6 +335,7 @@ public class OpportunityService {
         opportunity.setStatusGroupCode(OPPORTUNITY_STATUS_GROUP);
         opportunity.setStatusCode(request.getStatus() == null ? "PRODUCT_SOLUTIONING" : request.getStatus().getCode());
         opportunity.setEstimatedAmount(request.getEstimatedAmount());
+        opportunity.setMargin(requiredNonNegativeAmount(request.getMargin(), "Margin"));
         opportunity.setProbability(request.getProbability());
         opportunity.setExpectedCloseDate(request.getExpectedCloseDate());
         opportunity.setAssignedTo(assignedTo);
@@ -507,6 +522,7 @@ public class OpportunityService {
         private Person person;
         private OptionValue status;
         private BigDecimal estimatedAmount;
+        private BigDecimal margin;
         private Integer probability;
         private LocalDate expectedCloseDate;
         private User assignedTo;
@@ -562,6 +578,14 @@ public class OpportunityService {
 
         public void setEstimatedAmount(BigDecimal estimatedAmount) {
             this.estimatedAmount = estimatedAmount;
+        }
+
+        public BigDecimal getMargin() {
+            return margin;
+        }
+
+        public void setMargin(BigDecimal margin) {
+            this.margin = margin;
         }
 
         public Integer getProbability() {

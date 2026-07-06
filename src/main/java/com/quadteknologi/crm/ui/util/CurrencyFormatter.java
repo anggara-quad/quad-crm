@@ -16,7 +16,7 @@ public final class CurrencyFormatter {
             return "-";
         }
 
-        NumberFormat formatter = NumberFormat.getCurrencyInstance(INDONESIA);
+        NumberFormat formatter = NumberFormat.getNumberInstance(INDONESIA);
         formatter.setMinimumFractionDigits(0);
         formatter.setMaximumFractionDigits(0);
         return formatter.format(value);

@@ -2,11 +2,18 @@ package com.quadteknologi.crm.views;
 
 import com.quadteknologi.crm.domain.entity.Company;
 import com.quadteknologi.crm.domain.entity.Country;
+import com.quadteknologi.crm.domain.entity.Lead;
+import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.Region;
+import com.quadteknologi.crm.security.AppViewAccess;
+import com.quadteknologi.crm.security.ViewAccessService;
+import com.quadteknologi.crm.service.CompanyContactSummaryDto;
 import com.quadteknologi.crm.service.ContactService;
+import com.quadteknologi.crm.service.PersonContactSummaryDto;
 import com.quadteknologi.crm.ui.layout.MainLayout;
 import com.vaadin.componentfactory.addons.inputmask.InputMask;
+import com.vaadin.flow.component.ClientCallable;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
@@ -18,6 +25,7 @@ import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Header;
 import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.masterdetaillayout.MasterDetailLayout;
 import com.vaadin.flow.component.notification.Notification;
@@ -31,24 +39,41 @@ import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
 import com.vaadin.flow.data.binder.ValidationException;
+import com.vaadin.flow.data.renderer.LitRenderer;
 import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.function.ValueProvider;
+import com.vaadin.flow.router.BeforeEnterEvent;
+import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
+import com.vaadin.flow.router.QueryParameters;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.RolesAllowed;
+import jakarta.annotation.security.PermitAll;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.math.BigDecimal;
+import java.text.NumberFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
-@RolesAllowed({"Administrator", "Manager", "Sales"})
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+
+@PermitAll
 @PageTitle("Contact | Quad CRM")
 @Route(value = "contact", layout = MainLayout.class)
-public class ContactView extends VerticalLayout {
+public class ContactView extends VerticalLayout implements BeforeEnterObserver {
+
+    private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
 
     private final ContactService contactService;
+    private final ViewAccessService viewAccessService;
 
     private final MasterDetailLayout personLayout = new MasterDetailLayout();
     private final MasterDetailLayout organizationLayout = new MasterDetailLayout();
@@ -56,10 +81,23 @@ public class ContactView extends VerticalLayout {
     private final Grid<Company> organizationGrid = new Grid<>(Company.class, false);
 
     private final Div content = new Div();
+    private final Tab personTab = new Tab("Person");
+    private final Tab organizationTab = new Tab("Organization");
+    private final Tabs tabs = new Tabs(personTab, organizationTab);
+    private Map<Long, PersonContactSummaryDto> personSummaries = new HashMap<>();
+    private Map<Long, CompanyContactSummaryDto> companySummaries = new HashMap<>();
+    private List<Person> persons = List.of();
+    private List<Company> companies = List.of();
+    private ComboBox<Company> organizationFilter;
+    private boolean openingRelatedDetail;
+    private boolean contentConfigured;
+    private boolean loadScheduled;
+    private Company selectedOrganizationFilter;
     private String searchTerm = "";
 
-    public ContactView(ContactService contactService) {
+    public ContactView(ContactService contactService, ViewAccessService viewAccessService) {
         this.contactService = contactService;
+        this.viewAccessService = viewAccessService;
 
         addClassNames("page-view", "contact-view");
         setPadding(false);
@@ -69,9 +107,66 @@ public class ContactView extends VerticalLayout {
         add(createHeader(), createTabs(), content);
         content.addClassName("contact-tab-content");
 
-        configurePersonLayout();
-        configureOrganizationLayout();
-        showTab(personLayout);
+        showLoadingState();
+        addAttachListener(event -> scheduleContactLoad());
+    }
+
+    @Override
+    public void beforeEnter(BeforeEnterEvent event) {
+        viewAccessService.checkBeforeEnter(event, AppViewAccess.CONTACT);
+    }
+
+    @ClientCallable
+    public void loadContactData() {
+        loadScheduled = false;
+        reloadContactData();
+        if (!contentConfigured) {
+            configurePersonLayout();
+            configureOrganizationLayout();
+            contentConfigured = true;
+        }
+        refreshPersons();
+        refreshOrganizations();
+        showCurrentTab();
+    }
+
+    private void scheduleContactLoad() {
+        showLoadingState();
+        if (loadScheduled) {
+            return;
+        }
+        loadScheduled = true;
+        getElement().executeJs("setTimeout(() => this.$server.loadContactData(), 0)");
+    }
+
+    private void reloadContactData() {
+        personSummaries = contactService.findPersonSummaries().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        PersonContactSummaryDto::personId,
+                        Function.identity(),
+                        (current, replacement) -> current));
+        companySummaries = contactService.findCompanySummaries().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        CompanyContactSummaryDto::companyId,
+                        Function.identity(),
+                        (current, replacement) -> current));
+        persons = contactService.findAllPersons();
+        companies = contactService.findAllCompanies();
+        refreshOrganizationFilterOptions();
+    }
+
+    private void showLoadingState() {
+        content.removeAll();
+        Div loading = new Div();
+        loading.addClassName("contact-loading-state");
+        H3 title = new H3("Loading contacts");
+        Paragraph text = new Paragraph("Preparing people and organization data...");
+        loading.add(title, text);
+        content.add(loading);
+    }
+
+    private void showCurrentTab() {
+        showTab(tabs.getSelectedTab() == organizationTab ? organizationLayout : personLayout);
     }
 
     private Component createHeader() {
@@ -102,6 +197,9 @@ public class ContactView extends VerticalLayout {
         search.setValueChangeMode(ValueChangeMode.EAGER);
         search.addValueChangeListener(event -> {
             searchTerm = event.getValue() == null ? "" : event.getValue();
+            if (!contentConfigured) {
+                return;
+            }
             refreshPersons();
             refreshOrganizations();
         });
@@ -109,11 +207,12 @@ public class ContactView extends VerticalLayout {
     }
 
     private Component createTabs() {
-        Tab personTab = new Tab("Person");
-        Tab organizationTab = new Tab("Organization");
-        Tabs tabs = new Tabs(personTab, organizationTab);
         tabs.addClassName("contact-tabs");
         tabs.addSelectedChangeListener(event -> {
+            if (!contentConfigured) {
+                showLoadingState();
+                return;
+            }
             if (event.getSelectedTab() == personTab) {
                 showTab(personLayout);
             } else {
@@ -138,7 +237,6 @@ public class ContactView extends VerticalLayout {
         personLayout.addBackdropClickListener(event -> closePersonDetail());
         personLayout.addDetailEscapePressListener(event -> closePersonDetail());
         personLayout.setMaster(createPersonMaster());
-        refreshPersons();
     }
 
     private Component createPersonMaster() {
@@ -148,18 +246,73 @@ public class ContactView extends VerticalLayout {
         master.setSpacing(false);
         master.setSizeFull();
 
-        master.add(createMasterToolbar("Person", "New Person", event -> openPersonForm(new Person())));
+        master.add(createPersonToolbar());
 
         personGrid.addClassName("contact-grid");
         personGrid.setSizeFull();
-        addSortableTextColumn(personGrid, Person::getFullName, "Name").setFlexGrow(1);
-        addSortableTextColumn(personGrid,
-                person -> person.getCompany() == null ? null : person.getCompany().getName(),
-                "Organization").setFlexGrow(1);
-        addSortableTextColumn(personGrid, Person::getJobTitle, "Job Title");
-        addSortableTextColumn(personGrid, Person::getEmail, "Email");
-        addSortableTextColumn(personGrid, Person::getPhone, "Phone");
+        personGrid.addColumn(personIdentityRenderer())
+                .setHeader("Person")
+                .setWidth("200px")
+                .setFlexGrow(2)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(Person::getFullName, String.CASE_INSENSITIVE_ORDER));
+        personGrid.addColumn(personContactRenderer())
+                .setHeader("Organization / Contact")
+                .setWidth("200px")
+                .setFlexGrow(2)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        this::personCompanyName,
+                        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        personGrid.addColumn(personMetricActionRenderer(
+                        person -> formatNumber(personSummary(person).leads()) + " / "
+                                + formatNumber(personSummary(person).validLeads()),
+                        person -> "Leads / valid",
+                        person -> personSummary(person).leads(),
+                        this::openPersonLeads))
+                .setHeader("Leads")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparingLong(person -> personSummary(person).leads()));
+        personGrid.addColumn(personMetricActionRenderer(
+                        person -> formatNumber(personSummary(person).opportunities()) + " total",
+                        person -> formatNumber(personSummary(person).openOpportunities()) + " open opportunities",
+                        person -> personSummary(person).opportunities(),
+                        this::openPersonOpportunities))
+                .setHeader("Opportunities")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparingLong(person -> personSummary(person).opportunities()));
+        personGrid.addColumn(personStackRenderer(
+                        person -> formatCurrency(personSummary(person).wonRevenue()),
+                        person -> "Won revenue"))
+                .setHeader("Won")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(person -> personSummary(person).wonRevenue()));
+        personGrid.addColumn(personStackRenderer(
+                        person -> createdByName(person.getCreatedBy()),
+                        person -> "Created by"))
+                .setHeader("Created By")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        person -> createdByName(person.getCreatedBy()),
+                        String.CASE_INSENSITIVE_ORDER));
+        personGrid.addColumn(personStackRenderer(
+                        person -> formatDateTime(personSummary(person).lastActivityAt()),
+                        person -> "Last activity"))
+                .setHeader("Activity")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        person -> personSummary(person).lastActivityAt(),
+                        Comparator.nullsLast(Comparator.naturalOrder())));
         personGrid.asSingleSelect().addValueChangeListener(event -> {
+            if (openingRelatedDetail) {
+                openingRelatedDetail = false;
+                return;
+            }
             if (event.getValue() != null) {
                 openPersonForm(event.getValue());
             }
@@ -175,7 +328,7 @@ public class ContactView extends VerticalLayout {
         Div detail = createDetailShell(person.getId() == null ? "New Person" : person.getFullName());
 
         ComboBox<Company> company = new ComboBox<>("Organization");
-        company.setItems(contactService.findAllCompanies());
+        company.setItems(companies);
         company.setItemLabelGenerator(Company::getName);
         company.setClearButtonVisible(true);
 
@@ -222,7 +375,7 @@ public class ContactView extends VerticalLayout {
             try {
                 binder.writeBean(person);
                 contactService.savePerson(person);
-                refreshPersons();
+                reloadContactDataAndRefreshGrids();
                 closePersonDetail();
                 showSuccess("Person saved");
             } catch (ValidationException exception) {
@@ -239,7 +392,7 @@ public class ContactView extends VerticalLayout {
                 return;
             }
             contactService.deletePerson(person);
-            refreshPersons();
+            reloadContactDataAndRefreshGrids();
             closePersonDetail();
             showSuccess("Person deleted");
         });
@@ -261,7 +414,6 @@ public class ContactView extends VerticalLayout {
         organizationLayout.addBackdropClickListener(event -> closeOrganizationDetail());
         organizationLayout.addDetailEscapePressListener(event -> closeOrganizationDetail());
         organizationLayout.setMaster(createOrganizationMaster());
-        refreshOrganizations();
     }
 
     private Component createOrganizationMaster() {
@@ -275,20 +427,76 @@ public class ContactView extends VerticalLayout {
 
         organizationGrid.addClassName("contact-grid");
         organizationGrid.setSizeFull();
-        addSortableTextColumn(organizationGrid, Company::getName, "Name").setFlexGrow(1);
-        addSortableTextColumn(organizationGrid, Company::getIndustry, "Industry");
-        addSortableTextColumn(organizationGrid, Company::getEmail, "Email");
-        addSortableTextColumn(organizationGrid, Company::getPhone, "Phone");
-        addSortableTextColumn(organizationGrid,
-                company -> company.getCountry() == null ? null : company.getCountry().getName(),
-                "Country");
-        addSortableTextColumn(organizationGrid,
-                company -> company.getProvince() == null ? null : company.getProvince().getName(),
-                "Province");
-        addSortableTextColumn(organizationGrid,
-                company -> company.getCity() == null ? null : company.getCity().getName(),
-                "City / Regency");
+        organizationGrid.addColumn(companyIdentityRenderer())
+                .setHeader("Organization")
+                .setWidth("200px")
+                .setFlexGrow(2)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(Company::getName, String.CASE_INSENSITIVE_ORDER));
+        organizationGrid.addColumn(companyContactRenderer())
+                .setHeader("Contact / Location")
+                .setWidth("200px")
+                .setFlexGrow(2)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(this::companyLocation, String.CASE_INSENSITIVE_ORDER));
+        organizationGrid.addColumn(companyMetricActionRenderer(
+                        company -> formatNumber(companySummary(company).contacts()),
+                        company -> "Contacts",
+                        company -> companySummary(company).contacts(),
+                        this::openCompanyContacts))
+                .setHeader("Contacts")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparingLong(company -> companySummary(company).contacts()));
+        organizationGrid.addColumn(companyMetricActionRenderer(
+                        company -> formatNumber(companySummary(company).leads()) + " / "
+                                + formatNumber(companySummary(company).validLeads()),
+                        company -> "Leads / valid",
+                        company -> companySummary(company).leads(),
+                        this::openCompanyLeads))
+                .setHeader("Leads")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparingLong(company -> companySummary(company).leads()));
+        organizationGrid.addColumn(companyMetricActionRenderer(
+                        company -> formatNumber(companySummary(company).opportunities()) + " total",
+                        company -> formatNumber(companySummary(company).openOpportunities()) + " open opportunities",
+                        company -> companySummary(company).opportunities(),
+                        this::openCompanyOpportunities))
+                .setHeader("Opportunities")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparingLong(company -> companySummary(company).opportunities()));
+        organizationGrid.addColumn(companyStackRenderer(
+                        company -> formatCurrency(companySummary(company).wonRevenue()),
+                        company -> "Won revenue"))
+                .setHeader("Won")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(company -> companySummary(company).wonRevenue()));
+        organizationGrid.addColumn(companyStackRenderer(
+                        company -> formatDateTime(companySummary(company).lastActivityAt()),
+                        company -> "Last activity"))
+                .setHeader("Activity")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        company -> companySummary(company).lastActivityAt(),
+                        Comparator.nullsLast(Comparator.naturalOrder())));
+        organizationGrid.addColumn(companyStackRenderer(
+                        company -> createdByName(company.getCreatedBy()),
+                        company -> "Created by"))
+                .setHeader("Created By")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        company -> createdByName(company.getCreatedBy()),
+                        String.CASE_INSENSITIVE_ORDER));
         organizationGrid.asSingleSelect().addValueChangeListener(event -> {
+            if (openingRelatedDetail) {
+                openingRelatedDetail = false;
+                return;
+            }
             if (event.getValue() != null) {
                 openOrganizationForm(event.getValue());
             }
@@ -332,7 +540,7 @@ public class ContactView extends VerticalLayout {
 
         Country selectedCountry = findCountryById(countries, company.getCountry());
         if (selectedCountry == null && company.getId() == null && countries.size() == 1) {
-            selectedCountry = countries.get(0);
+            selectedCountry = countries.getFirst();
         }
         company.setCountry(selectedCountry);
 
@@ -424,8 +632,7 @@ public class ContactView extends VerticalLayout {
             try {
                 binder.writeBean(company);
                 contactService.saveCompany(company);
-                refreshOrganizations();
-                refreshPersons();
+                reloadContactDataAndRefreshGrids();
                 closeOrganizationDetail();
                 showSuccess("Organization saved");
             } catch (ValidationException exception) {
@@ -443,8 +650,7 @@ public class ContactView extends VerticalLayout {
             }
             try {
                 contactService.deleteCompany(company);
-                refreshOrganizations();
-                refreshPersons();
+                reloadContactDataAndRefreshGrids();
                 closeOrganizationDetail();
                 showSuccess("Organization deleted");
             } catch (DataIntegrityViolationException exception) {
@@ -457,6 +663,47 @@ public class ContactView extends VerticalLayout {
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
         return actionBar(save, delete, cancel);
+    }
+
+    private Component createPersonToolbar() {
+        Div toolbar = new Div();
+        toolbar.addClassName("contact-master-toolbar");
+
+        Span titleSpan = new Span("Person");
+        titleSpan.addClassName("contact-master-title");
+
+        Div filters = new Div();
+        filters.addClassName("contact-master-filters");
+
+        organizationFilter = new ComboBox<>();
+        organizationFilter.addClassName("contact-organization-filter");
+        organizationFilter.setItemLabelGenerator(Company::getName);
+        organizationFilter.setPlaceholder("All Organizations");
+        organizationFilter.setClearButtonVisible(true);
+        refreshOrganizationFilterOptions();
+        organizationFilter.addValueChangeListener(event -> {
+            selectedOrganizationFilter = event.getValue();
+            closePersonDetail();
+            refreshPersons();
+        });
+        filters.add(organizationFilter);
+
+        Button action = new Button("New Person", VaadinIcon.PLUS.create(), event -> openPersonForm(new Person()));
+        action.addClassName("pipeline-create-button");
+
+        toolbar.add(titleSpan, filters, action);
+        return toolbar;
+    }
+
+    private void refreshOrganizationFilterOptions() {
+        if (organizationFilter == null) {
+            return;
+        }
+        organizationFilter.setItems(companies);
+        Company selected = findSelectedOrganization(companies);
+        if (!Objects.equals(organizationFilter.getValue(), selected)) {
+            organizationFilter.setValue(selected);
+        }
     }
 
     private Component createMasterToolbar(String title, String actionLabel,
@@ -474,6 +721,16 @@ public class ContactView extends VerticalLayout {
         return toolbar;
     }
 
+    private Company findSelectedOrganization(List<Company> companies) {
+        if (selectedOrganizationFilter == null || selectedOrganizationFilter.getId() == null) {
+            return null;
+        }
+        return companies.stream()
+                .filter(company -> Objects.equals(company.getId(), selectedOrganizationFilter.getId()))
+                .findFirst()
+                .orElse(null);
+    }
+
     private Div createDetailShell(String title) {
         Div detail = new Div();
         detail.addClassName("contact-detail");
@@ -483,6 +740,199 @@ public class ContactView extends VerticalLayout {
         detail.add(heading);
 
         return detail;
+    }
+
+    private Div createRelatedDetailShell(String title, Runnable closeAction) {
+        Div detail = new Div();
+        detail.addClassName("contact-detail");
+
+        Div header = new Div();
+        header.addClassName("contact-related-header");
+
+        H3 heading = new H3(title);
+        heading.addClassName("contact-detail-title");
+
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closeAction.run());
+        close.addClassName("contact-related-close");
+        close.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        close.getElement().setAttribute("aria-label", "Close detail");
+
+        header.add(heading, close);
+        detail.add(header);
+        return detail;
+    }
+
+    private void openPersonLeads(Person person) {
+        List<Lead> leads = contactService.findLeadsForPerson(person);
+        personLayout.setDetail(createLeadRelatedDetail(
+                "Leads - " + person.getFullName(),
+                leads,
+                this::closePersonDetail));
+    }
+
+    private void openPersonOpportunities(Person person) {
+        List<Opportunity> opportunities = contactService.findOpportunitiesForPerson(person);
+        personLayout.setDetail(createOpportunityRelatedDetail(
+                "Opportunities - " + person.getFullName(),
+                opportunities,
+                this::closePersonDetail));
+    }
+
+    private void openCompanyContacts(Company company) {
+        List<Person> persons = contactService.findPersonsForCompany(company);
+        organizationLayout.setDetail(createContactRelatedDetail(
+                "Contacts - " + company.getName(),
+                persons));
+    }
+
+    private void openCompanyLeads(Company company) {
+        List<Lead> leads = contactService.findLeadsForCompany(company);
+        organizationLayout.setDetail(createLeadRelatedDetail(
+                "Leads - " + company.getName(),
+                leads,
+                this::closeOrganizationDetail));
+    }
+
+    private void openCompanyOpportunities(Company company) {
+        List<Opportunity> opportunities = contactService.findOpportunitiesForCompany(company);
+        organizationLayout.setDetail(createOpportunityRelatedDetail(
+                "Opportunities - " + company.getName(),
+                opportunities,
+                this::closeOrganizationDetail));
+    }
+
+    private Component createLeadRelatedDetail(String title, List<Lead> leads, Runnable closeAction) {
+        Div detail = createRelatedDetailShell(title, closeAction);
+        Div list = createRelatedList();
+        if (leads.isEmpty()) {
+            list.add(createRelatedEmpty("No related leads"));
+        } else {
+            leads.forEach(lead -> list.add(createLeadRelatedRow(lead)));
+        }
+        detail.add(list);
+        return detail;
+    }
+
+    private Component createOpportunityRelatedDetail(String title, List<Opportunity> opportunities, Runnable closeAction) {
+        Div detail = createRelatedDetailShell(title, closeAction);
+        Div list = createRelatedList();
+        if (opportunities.isEmpty()) {
+            list.add(createRelatedEmpty("No related opportunities"));
+        } else {
+            opportunities.forEach(opportunity -> list.add(createOpportunityRelatedRow(opportunity)));
+        }
+        detail.add(list);
+        return detail;
+    }
+
+    private Component createContactRelatedDetail(String title, List<Person> persons) {
+        Div detail = createRelatedDetailShell(title, this::closeOrganizationDetail);
+        Div list = createRelatedList();
+        if (persons.isEmpty()) {
+            list.add(createRelatedEmpty("No related contacts"));
+        } else {
+            persons.forEach(person -> list.add(createContactRelatedRow(person)));
+        }
+        detail.add(list);
+        return detail;
+    }
+
+    private Div createRelatedList() {
+        Div list = new Div();
+        list.addClassName("contact-related-list");
+        return list;
+    }
+
+    private Component createLeadRelatedRow(Lead lead) {
+        Div row = createRelatedRow(() -> openLeadDetail(lead));
+        row.add(
+                createRelatedBody(
+                        lead.getTitle(),
+                        firstNonBlank(leadAccount(lead), "No account"),
+                        leadStatusName(lead) + " | Source " + valueOrFallback(lead.getSource(), "-")),
+                createRelatedAside(formatDateTime(lead.getCreatedAt()), "Open lead"));
+        return row;
+    }
+
+    private Component createOpportunityRelatedRow(Opportunity opportunity) {
+        Div row = createRelatedRow(() -> openOpportunityDetail(opportunity));
+        row.add(
+                createRelatedBody(
+                        opportunity.getTitle(),
+                        firstNonBlank(opportunityAccount(opportunity), "No account"),
+                        opportunityStageName(opportunity) + " | Amount " + formatCurrency(opportunity.getEstimatedAmount())),
+                createRelatedAside(formatDateTime(opportunity.getCreatedAt()), "Open opportunity"));
+        return row;
+    }
+
+    private Component createContactRelatedRow(Person person) {
+        Div row = createRelatedRow(() -> openPersonFromOrganizationDetail(person));
+        row.add(
+                createRelatedBody(
+                        person.getFullName(),
+                        firstNonBlank(person.getJobTitle(), "No job title"),
+                        "Phone " + valueOrFallback(person.getPhone(), "-") + " | WhatsApp "
+                                + valueOrFallback(person.getWhatsapp(), "-")),
+                createRelatedAside(valueOrFallback(person.getEmail(), "-"), "Open contact"));
+        return row;
+    }
+
+    private Div createRelatedRow(Runnable action) {
+        Div row = new Div();
+        row.addClassName("contact-related-row");
+        row.getElement().setAttribute("role", "button");
+        row.getElement().setAttribute("tabindex", "0");
+        row.addClickListener(event -> action.run());
+        row.getElement().addEventListener("keydown", event -> action.run())
+                .setFilter("event.key === 'Enter' || event.key === ' '");
+        return row;
+    }
+
+    private Component createRelatedBody(String title, String meta, String caption) {
+        Div body = new Div();
+        body.addClassName("contact-related-body");
+        Span titleSpan = new Span(valueOrFallback(title, "-"));
+        titleSpan.addClassName("contact-related-title");
+        Span metaSpan = new Span(valueOrFallback(meta, "-"));
+        metaSpan.addClassName("contact-related-meta");
+        Span captionSpan = new Span(valueOrFallback(caption, "-"));
+        captionSpan.addClassName("contact-related-meta");
+        body.add(titleSpan, metaSpan, captionSpan);
+        return body;
+    }
+
+    private Component createRelatedAside(String primary, String secondary) {
+        Div aside = new Div();
+        aside.addClassName("contact-related-aside");
+        Span primarySpan = new Span(valueOrFallback(primary, "-"));
+        primarySpan.addClassName("contact-related-aside-primary");
+        Span secondarySpan = new Span(secondary);
+        secondarySpan.addClassName("contact-related-meta");
+        aside.add(primarySpan, secondarySpan);
+        return aside;
+    }
+
+    private Component createRelatedEmpty(String text) {
+        Span empty = new Span(text);
+        empty.addClassName("contact-related-empty");
+        return empty;
+    }
+
+    private void openLeadDetail(Lead lead) {
+        UI.getCurrent().navigate(LeadsView.class,
+                QueryParameters.of("lead", String.valueOf(lead.getPublicId())));
+    }
+
+    private void openOpportunityDetail(Opportunity opportunity) {
+        UI.getCurrent().navigate(OpportunitiesView.class,
+                QueryParameters.of("opportunity", String.valueOf(opportunity.getPublicId())));
+    }
+
+    private void openPersonFromOrganizationDetail(Person person) {
+        organizationLayout.setDetail(null);
+        tabs.setSelectedTab(personTab);
+        showTab(personLayout);
+        openPersonForm(person);
     }
 
     private TextField phoneField(String label) {
@@ -515,18 +965,23 @@ public class ContactView extends VerticalLayout {
 
     private void refreshPersons() {
         String keyword = normalizeSearch(searchTerm);
-        personGrid.setItems(contactService.findAllPersons()
-                .stream()
+        personGrid.setItems(persons.stream()
+                .filter(this::matchesOrganizationFilter)
                 .filter(person -> keyword.isBlank() || matchesSearch(person, keyword))
                 .toList());
     }
 
     private void refreshOrganizations() {
         String keyword = normalizeSearch(searchTerm);
-        organizationGrid.setItems(contactService.findAllCompanies()
-                .stream()
+        organizationGrid.setItems(companies.stream()
                 .filter(company -> keyword.isBlank() || matchesSearch(company, keyword))
                 .toList());
+    }
+
+    private void reloadContactDataAndRefreshGrids() {
+        reloadContactData();
+        refreshPersons();
+        refreshOrganizations();
     }
 
     private boolean matchesSearch(Person person, String keyword) {
@@ -536,7 +991,17 @@ public class ContactView extends VerticalLayout {
                 || containsSearch(person.getEmail(), keyword)
                 || containsSearch(person.getPhone(), keyword)
                 || containsSearch(person.getWhatsapp(), keyword)
-                || containsSearch(person.getNotes(), keyword);
+                || containsSearch(person.getNotes(), keyword)
+                || containsSearch(formatNumber(personSummary(person).leads()), keyword)
+                || containsSearch(formatNumber(personSummary(person).opportunities()), keyword);
+    }
+
+    private boolean matchesOrganizationFilter(Person person) {
+        if (selectedOrganizationFilter == null || selectedOrganizationFilter.getId() == null) {
+            return true;
+        }
+        return person.getCompany() != null
+                && Objects.equals(person.getCompany().getId(), selectedOrganizationFilter.getId());
     }
 
     private boolean matchesSearch(Company company, String keyword) {
@@ -549,7 +1014,284 @@ public class ContactView extends VerticalLayout {
                 || containsSearch(company.getProvince() == null ? null : company.getProvince().getName(), keyword)
                 || containsSearch(company.getCountry() == null ? null : company.getCountry().getName(), keyword)
                 || containsSearch(company.getAddress(), keyword)
-                || containsSearch(company.getNotes(), keyword);
+                || containsSearch(company.getNotes(), keyword)
+                || containsSearch(formatNumber(companySummary(company).contacts()), keyword)
+                || containsSearch(formatNumber(companySummary(company).leads()), keyword)
+                || containsSearch(formatNumber(companySummary(company).opportunities()), keyword);
+    }
+
+    private LitRenderer<Person> personIdentityRenderer() {
+        return personStackRenderer(Person::getFullName, person -> firstNonBlank(person.getJobTitle(), "No job title"));
+    }
+
+    private LitRenderer<Person> personContactRenderer() {
+        return LitRenderer.<Person>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.organization}</span>
+                  <span class="pipeline-grid-secondary">Email: ${item.email}</span>
+                  <span class="pipeline-grid-secondary">Phone: ${item.phone}</span>
+                  <span class="pipeline-grid-secondary">WhatsApp: ${item.whatsapp}</span>
+                </div>
+                """)
+                .withProperty("organization", person -> valueOrFallback(personCompanyName(person), "No organization"))
+                .withProperty("email", person -> valueOrFallback(person.getEmail(), "-"))
+                .withProperty("phone", person -> valueOrFallback(person.getPhone(), "-"))
+                .withProperty("whatsapp", person -> valueOrFallback(person.getWhatsapp(), "-"));
+    }
+
+    private LitRenderer<Person> personStackRenderer(
+            Function<Person, String> primaryProvider,
+            Function<Person, String> secondaryProvider) {
+        return LitRenderer.<Person>of(stackTemplate())
+                .withProperty("primary", person -> valueOrFallback(primaryProvider.apply(person), "-"))
+                .withProperty("secondary", person -> valueOrFallback(secondaryProvider.apply(person), "-"));
+    }
+
+    private LitRenderer<Person> personMetricActionRenderer(
+            Function<Person, String> primaryProvider,
+            Function<Person, String> secondaryProvider,
+            Function<Person, Long> countProvider,
+            java.util.function.Consumer<Person> action) {
+        return LitRenderer.<Person>of(metricActionTemplate())
+                .withProperty("primary", person -> valueOrFallback(primaryProvider.apply(person), "-"))
+                .withProperty("secondary", person -> valueOrFallback(secondaryProvider.apply(person), "-"))
+                .withProperty("enabled", person -> countProvider.apply(person) > 0)
+                .withFunction("openMetric", person -> {
+                    if (countProvider.apply(person) <= 0) {
+                        return;
+                    }
+                    openingRelatedDetail = true;
+                    action.accept(person);
+                });
+    }
+
+    private LitRenderer<Company> companyIdentityRenderer() {
+        return companyStackRenderer(Company::getName, company -> firstNonBlank(company.getIndustry(), "No industry"));
+    }
+
+    private LitRenderer<Company> companyContactRenderer() {
+        return LitRenderer.<Company>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.location}</span>
+                  <span class="pipeline-grid-secondary">Email: ${item.email}</span>
+                  <span class="pipeline-grid-secondary">Phone: ${item.phone}</span>
+                  <span class="pipeline-grid-secondary">Website: ${item.website}</span>
+                </div>
+                """)
+                .withProperty("location", this::companyLocation)
+                .withProperty("email", company -> valueOrFallback(company.getEmail(), "-"))
+                .withProperty("phone", company -> valueOrFallback(company.getPhone(), "-"))
+                .withProperty("website", company -> valueOrFallback(company.getWebsite(), "-"));
+    }
+
+    private LitRenderer<Company> companyStackRenderer(
+            Function<Company, String> primaryProvider,
+            Function<Company, String> secondaryProvider) {
+        return LitRenderer.<Company>of(stackTemplate())
+                .withProperty("primary", company -> valueOrFallback(primaryProvider.apply(company), "-"))
+                .withProperty("secondary", company -> valueOrFallback(secondaryProvider.apply(company), "-"));
+    }
+
+    private LitRenderer<Company> companyMetricActionRenderer(
+            Function<Company, String> primaryProvider,
+            Function<Company, String> secondaryProvider,
+            Function<Company, Long> countProvider,
+            java.util.function.Consumer<Company> action) {
+        return LitRenderer.<Company>of(metricActionTemplate())
+                .withProperty("primary", company -> valueOrFallback(primaryProvider.apply(company), "-"))
+                .withProperty("secondary", company -> valueOrFallback(secondaryProvider.apply(company), "-"))
+                .withProperty("enabled", company -> countProvider.apply(company) > 0)
+                .withFunction("openMetric", company -> {
+                    if (countProvider.apply(company) <= 0) {
+                        return;
+                    }
+                    openingRelatedDetail = true;
+                    action.accept(company);
+                });
+    }
+
+    private String stackTemplate() {
+        return """
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.primary}</span>
+                  <span class="pipeline-grid-secondary">${item.secondary}</span>
+                </div>
+                """;
+    }
+
+    private String metricActionTemplate() {
+        return """
+                <div class="pipeline-grid-stack-cell contact-summary-metric-cell">
+                  <button class="contact-summary-action" ?disabled="${!item.enabled}" @click="${openMetric}">
+                    ${item.primary}
+                  </button>
+                  <span class="pipeline-grid-secondary">${item.secondary}</span>
+                </div>
+                """;
+    }
+
+    private Component createPersonIdentityCell(Person person) {
+        return createStackCell(person.getFullName(), firstNonBlank(person.getJobTitle(), "No job title"));
+    }
+
+    private Component createPersonContactCell(Person person) {
+        return createStackCell(
+                valueOrFallback(personCompanyName(person), "No organization"),
+                "Email: " + valueOrFallback(person.getEmail(), "-"),
+                "Phone: " + valueOrFallback(person.getPhone(), "-"),
+                "WhatsApp: " + valueOrFallback(person.getWhatsapp(), "-"));
+    }
+
+    private Component createCompanyIdentityCell(Company company) {
+        return createStackCell(company.getName(), firstNonBlank(company.getIndustry(), "No industry"));
+    }
+
+    private Component createCompanyContactCell(Company company) {
+        return createStackCell(
+                companyLocation(company),
+                "Email: " + valueOrFallback(company.getEmail(), "-"),
+                "Phone: " + valueOrFallback(company.getPhone(), "-"),
+                "Website: " + valueOrFallback(company.getWebsite(), "-"));
+    }
+
+    private Div createStackCell(String primaryText, String... secondaryTexts) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span primary = new Span(valueOrFallback(primaryText, "-"));
+        primary.addClassName("pipeline-grid-primary");
+        cell.add(primary);
+
+        for (String secondaryText : secondaryTexts) {
+            Span secondary = new Span(valueOrFallback(secondaryText, "-"));
+            secondary.addClassName("pipeline-grid-secondary");
+            cell.add(secondary);
+        }
+        return cell;
+    }
+
+    private Div createMetricCell(String primaryText, String secondaryText) {
+        Div cell = createStackCell(primaryText, secondaryText);
+        cell.addClassName("contact-summary-metric-cell");
+        return cell;
+    }
+
+    private Div createMetricActionCell(String primaryText, String secondaryText, long count, Runnable action) {
+        Div cell = new Div();
+        cell.addClassNames("pipeline-grid-stack-cell", "contact-summary-metric-cell");
+
+        Button button = new Button(primaryText, event -> {
+            openingRelatedDetail = true;
+            action.run();
+        });
+        button.addClassName("contact-summary-action");
+        button.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        button.setEnabled(count > 0);
+
+        Span secondary = new Span(secondaryText);
+        secondary.addClassName("pipeline-grid-secondary");
+
+        cell.add(button, secondary);
+        return cell;
+    }
+
+    private PersonContactSummaryDto personSummary(Person person) {
+        PersonContactSummaryDto summary = person.getId() == null ? null : personSummaries.get(person.getId());
+        return summary == null
+                ? new PersonContactSummaryDto(
+                        person.getId(),
+                        person.getPublicId(),
+                        person.getFullName(),
+                        person.getJobTitle(),
+                        personCompanyName(person),
+                        person.getEmail(),
+                        person.getPhone(),
+                        person.getWhatsapp(),
+                        0,
+                        0,
+                        0,
+                        0,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        person.getUpdatedAt())
+                : summary;
+    }
+
+    private CompanyContactSummaryDto companySummary(Company company) {
+        CompanyContactSummaryDto summary = company.getId() == null ? null : companySummaries.get(company.getId());
+        return summary == null
+                ? new CompanyContactSummaryDto(
+                        company.getId(),
+                        company.getPublicId(),
+                        company.getName(),
+                        company.getIndustry(),
+                        company.getEmail(),
+                        company.getPhone(),
+                        company.getWebsite(),
+                        company.getCity() == null ? company.getLegacyCity() : company.getCity().getName(),
+                        company.getProvince() == null ? company.getLegacyProvince() : company.getProvince().getName(),
+                        company.getCountry() == null ? company.getLegacyCountry() : company.getCountry().getName(),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        company.getUpdatedAt())
+                : summary;
+    }
+
+    private String personCompanyName(Person person) {
+        return person.getCompany() == null ? null : person.getCompany().getName();
+    }
+
+    private String companyLocation(Company company) {
+        return Stream.of(
+                        company.getCity() == null ? company.getLegacyCity() : company.getCity().getName(),
+                        company.getProvince() == null ? company.getLegacyProvince() : company.getProvince().getName(),
+                        company.getCountry() == null ? company.getLegacyCountry() : company.getCountry().getName())
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse("No location");
+    }
+
+    private String leadAccount(Lead lead) {
+        return firstNonBlank(
+                lead.getCompany() == null ? null : lead.getCompany().getName(),
+                lead.getPerson() == null ? null : lead.getPerson().getFullName(),
+                lead.getRawCompanyName(),
+                lead.getRawPersonName());
+    }
+
+    private String opportunityAccount(Opportunity opportunity) {
+        return firstNonBlank(
+                opportunity.getCompany() == null ? null : opportunity.getCompany().getName(),
+                opportunity.getPerson() == null ? null : opportunity.getPerson().getFullName(),
+                opportunity.getLead() == null ? null : leadAccount(opportunity.getLead()));
+    }
+
+    private String leadStatusName(Lead lead) {
+        return lead.getStatus() == null ? valueOrFallback(lead.getStatusCode(), "No status") : lead.getStatus().getName();
+    }
+
+    private String opportunityStageName(Opportunity opportunity) {
+        return opportunity.getStatus() == null
+                ? valueOrFallback(opportunity.getStatusCode(), "No stage")
+                : opportunity.getStatus().getName();
+    }
+
+    private String createdByName(com.quadteknologi.crm.domain.entity.User user) {
+        return user == null ? "-" : valueOrFallback(user.getFullName(), user.getEmail());
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private Country findCountryById(List<Country> countries, Country country) {
@@ -578,6 +1320,22 @@ public class ContactView extends VerticalLayout {
 
     private String displayText(String value) {
         return value == null || value.isBlank() ? "-" : value;
+    }
+
+    private String valueOrFallback(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String formatNumber(long value) {
+        return NumberFormat.getIntegerInstance(new Locale("id", "ID")).format(value);
+    }
+
+    private String formatCurrency(BigDecimal amount) {
+        return formatRupiah(amount == null ? BigDecimal.ZERO : amount);
+    }
+
+    private String formatDateTime(LocalDateTime dateTime) {
+        return dateTime == null ? "-" : dateTime.format(DATE_TIME_FORMAT);
     }
 
     private String sortText(String value) {

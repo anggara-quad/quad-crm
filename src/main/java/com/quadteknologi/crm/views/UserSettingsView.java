@@ -2,6 +2,8 @@ package com.quadteknologi.crm.views;
 
 import com.quadteknologi.crm.domain.entity.Role;
 import com.quadteknologi.crm.domain.entity.User;
+import com.quadteknologi.crm.security.AppViewAccess;
+import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.service.UserSettingsService;
 import com.quadteknologi.crm.ui.component.MasterDetailCrud;
 import com.quadteknologi.crm.ui.layout.MainLayout;
@@ -27,9 +29,11 @@ import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
 import com.vaadin.flow.data.binder.ValidationException;
 import com.vaadin.flow.data.value.ValueChangeMode;
+import com.vaadin.flow.router.BeforeEnterEvent;
+import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.RolesAllowed;
+import jakarta.annotation.security.PermitAll;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
@@ -38,17 +42,19 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-@RolesAllowed("Administrator")
+@PermitAll
 @PageTitle("User Settings | Quad CRM")
 @Route(value = "settings/users", layout = MainLayout.class)
-public class UserSettingsView extends VerticalLayout {
+public class UserSettingsView extends VerticalLayout implements BeforeEnterObserver {
 
     private final UserSettingsService userSettingsService;
+    private final ViewAccessService viewAccessService;
     private final MasterDetailCrud<UserSettingsService.UserAccount> userCrud;
     private String searchTerm = "";
 
-    public UserSettingsView(UserSettingsService userSettingsService) {
+    public UserSettingsView(UserSettingsService userSettingsService, ViewAccessService viewAccessService) {
         this.userSettingsService = userSettingsService;
+        this.viewAccessService = viewAccessService;
 
         addClassNames("page-view", "contact-view");
         setPadding(false);
@@ -67,6 +73,11 @@ public class UserSettingsView extends VerticalLayout {
         userCrud.refresh();
 
         add(createHeader(), userCrud);
+    }
+
+    @Override
+    public void beforeEnter(BeforeEnterEvent event) {
+        viewAccessService.checkBeforeEnter(event, AppViewAccess.USER_SETTINGS);
     }
 
     private Component createHeader() {

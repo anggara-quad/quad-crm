@@ -2,6 +2,7 @@ package com.quadteknologi.crm.domain.repository;
 
 import com.quadteknologi.crm.domain.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -18,4 +19,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findAllByOrderByFullNameAsc();
 
     List<User> findByActiveTrueOrderByFullNameAsc();
+
+    @Query("""
+            select distinct user
+            from User user
+            join UserRole userRole on userRole.user = user
+            join userRole.role role
+            where user.active = true
+              and role.name = 'Sales'
+            order by user.fullName asc
+            """)
+    List<User> findActiveSalesUsersOrderByFullNameAsc();
 }

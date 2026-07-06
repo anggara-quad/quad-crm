@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -152,6 +153,12 @@ public class LeadService {
 
     public Lead findLead(Long id) {
         Lead lead = leadRepository.findById(id).orElseThrow();
+        dataAccessService.assertCanAccessCreatedBy("lead", lead.getCreatedBy());
+        return lead;
+    }
+
+    public Lead findLead(UUID publicId) {
+        Lead lead = leadRepository.findByPublicId(publicId).orElseThrow();
         dataAccessService.assertCanAccessCreatedBy("lead", lead.getCreatedBy());
         return lead;
     }

@@ -1,0 +1,2 @@
+ALTER TABLE opportunities
+    ADD COLUMN margin NUMERIC(18, 2) NOT NULL DEFAULT 0;

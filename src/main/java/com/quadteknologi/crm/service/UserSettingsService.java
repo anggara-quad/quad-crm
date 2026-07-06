@@ -6,12 +6,17 @@ import com.quadteknologi.crm.domain.entity.UserRole;
 import com.quadteknologi.crm.domain.repository.RoleRepository;
 import com.quadteknologi.crm.domain.repository.UserRepository;
 import com.quadteknologi.crm.domain.repository.UserRoleRepository;
+import com.quadteknologi.crm.security.AppViewAccess;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -22,16 +27,19 @@ public class UserSettingsService {
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JdbcTemplate jdbcTemplate;
 
     public UserSettingsService(
             UserRepository userRepository,
             RoleRepository roleRepository,
             UserRoleRepository userRoleRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            JdbcTemplate jdbcTemplate) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional(readOnly = true)
@@ -45,6 +53,42 @@ public class UserSettingsService {
     @Transactional(readOnly = true)
     public List<Role> findActiveRoles() {
         return roleRepository.findByActiveTrueOrderByNameAsc();
+    }
+
+    public List<AppViewAccess> findConfigurableViews() {
+        return AppViewAccess.configurableViews();
+    }
+
+    @Transactional(readOnly = true)
+    public List<RoleAccessSettings> findRoleAccessSettings() {
+        List<Role> roles = findActiveRoles();
+        Map<Long, Set<AppViewAccess>> accessByRoleId = findAccessByRoleId();
+
+        return roles.stream()
+                .map(role -> new RoleAccessSettings(role, accessByRoleId.getOrDefault(role.getId(), Set.of())))
+                .toList();
+    }
+
+    @Transactional
+    public void saveRoleAccess(Long roleId, Set<AppViewAccess> views) {
+        if (roleId == null) {
+            throw new IllegalArgumentException("Role is required");
+        }
+        Role role = roleRepository.findById(roleId).orElseThrow(() -> new IllegalArgumentException("Role was not found"));
+
+        jdbcTemplate.update("delete from role_view_permissions where role_id = ?", role.getId());
+
+        if (views == null || views.isEmpty()) {
+            return;
+        }
+
+        views.stream()
+                .map(AppViewAccess::code)
+                .distinct()
+                .forEach(viewCode -> jdbcTemplate.update("""
+                        insert into role_view_permissions (role_id, view_code)
+                        values (?, ?)
+                        """, role.getId(), viewCode));
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +155,26 @@ public class UserSettingsService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
+    private Map<Long, Set<AppViewAccess>> findAccessByRoleId() {
+        Map<Long, Set<String>> codesByRoleId = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                select role_id, view_code
+                from role_view_permissions
+                order by role_id, view_code
+                """, resultSet -> {
+            Long roleId = resultSet.getLong("role_id");
+            String viewCode = resultSet.getString("view_code");
+            codesByRoleId.computeIfAbsent(roleId, ignored -> new java.util.LinkedHashSet<>()).add(viewCode);
+        });
+
+        Map<Long, Set<AppViewAccess>> accessByRoleId = new LinkedHashMap<>();
+        codesByRoleId.forEach((roleId, viewCodes) -> accessByRoleId.put(roleId, viewCodes.stream()
+                .map(AppViewAccess::fromCode)
+                .flatMap(Optional::stream)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new))));
+        return accessByRoleId;
+    }
+
     public record UserAccount(User user, List<Role> roles) {
 
         public String roleNames() {
@@ -121,6 +185,9 @@ public class UserSettingsService {
                     .map(Role::getName)
                     .collect(Collectors.joining(", "));
         }
+    }
+
+    public record RoleAccessSettings(Role role, Set<AppViewAccess> views) {
     }
 
     public static class UserForm {

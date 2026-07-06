@@ -2,24 +2,34 @@ package com.quadteknologi.crm.service;
 
 import com.quadteknologi.crm.domain.entity.Company;
 import com.quadteknologi.crm.domain.entity.Country;
+import com.quadteknologi.crm.domain.entity.Lead;
+import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.domain.repository.CompanyRepository;
 import com.quadteknologi.crm.domain.repository.CountryRepository;
+import com.quadteknologi.crm.domain.repository.LeadRepository;
+import com.quadteknologi.crm.domain.repository.OpportunityRepository;
 import com.quadteknologi.crm.domain.repository.PersonRepository;
 import com.quadteknologi.crm.domain.repository.RegionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 @Service
 public class ContactService {
 
     private final CompanyRepository companyRepository;
     private final PersonRepository personRepository;
+    private final LeadRepository leadRepository;
+    private final OpportunityRepository opportunityRepository;
     private final CountryRepository countryRepository;
     private final RegionRepository regionRepository;
     private final DataAccessService dataAccessService;
@@ -27,11 +37,15 @@ public class ContactService {
     public ContactService(
             CompanyRepository companyRepository,
             PersonRepository personRepository,
+            LeadRepository leadRepository,
+            OpportunityRepository opportunityRepository,
             CountryRepository countryRepository,
             RegionRepository regionRepository,
             DataAccessService dataAccessService) {
         this.companyRepository = companyRepository;
         this.personRepository = personRepository;
+        this.leadRepository = leadRepository;
+        this.opportunityRepository = opportunityRepository;
         this.countryRepository = countryRepository;
         this.regionRepository = regionRepository;
         this.dataAccessService = dataAccessService;
@@ -51,6 +65,96 @@ public class ContactService {
             return companyRepository.findByCreatedByIdOrderByNameAsc(dataAccessService.requireCurrentUserId());
         }
         return companyRepository.findAllByOrderByNameAsc();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Company> findOrganizationFilterCompanies() {
+        return findAllCompanies();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonContactSummaryDto> findPersonSummaries() {
+        return personRepository.summarizePersons(visibleCreatedById()).stream()
+                .map(this::mapPersonSummary)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CompanyContactSummaryDto> findCompanySummaries() {
+        return companyRepository.summarizeCompanies(visibleCreatedById()).stream()
+                .map(this::mapCompanySummary)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public long countPersons(LocalDateTime from, LocalDateTime to, Long createdById) {
+        if (createdById == null) {
+            return personRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, to);
+        }
+        return personRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndCreatedById(from, to, createdById);
+    }
+
+    @Transactional(readOnly = true)
+    public long countCompanies(LocalDateTime from, LocalDateTime to, Long createdById) {
+        if (createdById == null) {
+            return companyRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, to);
+        }
+        return companyRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndCreatedById(from, to, createdById);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Lead> findLeadsForPerson(Person person) {
+        if (person == null || person.getId() == null) {
+            return List.of();
+        }
+        Long createdById = visibleCreatedById();
+        return createdById == null
+                ? leadRepository.findByPersonIdOrderByCreatedAtDesc(person.getId())
+                : leadRepository.findByPersonIdAndCreatedByIdOrderByCreatedAtDesc(person.getId(), createdById);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Lead> findLeadsForCompany(Company company) {
+        if (company == null || company.getId() == null) {
+            return List.of();
+        }
+        Long createdById = visibleCreatedById();
+        return createdById == null
+                ? leadRepository.findByCompanyIdOrderByCreatedAtDesc(company.getId())
+                : leadRepository.findByCompanyIdAndCreatedByIdOrderByCreatedAtDesc(company.getId(), createdById);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Opportunity> findOpportunitiesForPerson(Person person) {
+        if (person == null || person.getId() == null) {
+            return List.of();
+        }
+        Long createdById = visibleCreatedById();
+        return createdById == null
+                ? opportunityRepository.findByPersonIdOrderByCreatedAtDesc(person.getId())
+                : opportunityRepository.findByPersonIdAndCreatedByIdOrderByCreatedAtDesc(person.getId(), createdById);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Opportunity> findOpportunitiesForCompany(Company company) {
+        if (company == null || company.getId() == null) {
+            return List.of();
+        }
+        Long createdById = visibleCreatedById();
+        return createdById == null
+                ? opportunityRepository.findByCompanyIdOrderByCreatedAtDesc(company.getId())
+                : opportunityRepository.findByCompanyIdAndCreatedByIdOrderByCreatedAtDesc(company.getId(), createdById);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Person> findPersonsForCompany(Company company) {
+        if (company == null || company.getId() == null) {
+            return List.of();
+        }
+        Long createdById = visibleCreatedById();
+        return createdById == null
+                ? personRepository.findByCompanyIdOrderByFullNameAsc(company.getId())
+                : personRepository.findByCompanyIdAndCreatedByIdOrderByFullNameAsc(company.getId(), createdById);
     }
 
     @Transactional(readOnly = true)
@@ -160,5 +264,89 @@ public class ContactService {
         company.setCountry(country);
         company.setProvince(province);
         company.setCity(city);
+    }
+
+    private Long visibleCreatedById() {
+        return dataAccessService.isSalesScope() ? dataAccessService.requireCurrentUserId() : null;
+    }
+
+    private PersonContactSummaryDto mapPersonSummary(Object[] row) {
+        return new PersonContactSummaryDto(
+                longValue(row[0]),
+                uuidValue(row[1]),
+                stringValue(row[2]),
+                stringValue(row[3]),
+                stringValue(row[4]),
+                stringValue(row[5]),
+                stringValue(row[6]),
+                stringValue(row[7]),
+                primitiveLong(row[8]),
+                primitiveLong(row[9]),
+                primitiveLong(row[10]),
+                primitiveLong(row[11]),
+                decimalValue(row[12]),
+                decimalValue(row[13]),
+                dateTimeValue(row[14]));
+    }
+
+    private CompanyContactSummaryDto mapCompanySummary(Object[] row) {
+        return new CompanyContactSummaryDto(
+                longValue(row[0]),
+                uuidValue(row[1]),
+                stringValue(row[2]),
+                stringValue(row[3]),
+                stringValue(row[4]),
+                stringValue(row[5]),
+                stringValue(row[6]),
+                stringValue(row[7]),
+                stringValue(row[8]),
+                stringValue(row[9]),
+                primitiveLong(row[10]),
+                primitiveLong(row[11]),
+                primitiveLong(row[12]),
+                primitiveLong(row[13]),
+                primitiveLong(row[14]),
+                decimalValue(row[15]),
+                decimalValue(row[16]),
+                dateTimeValue(row[17]));
+    }
+
+    private Long longValue(Object value) {
+        return value instanceof Number number ? number.longValue() : null;
+    }
+
+    private long primitiveLong(Object value) {
+        return value instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private BigDecimal decimalValue(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private UUID uuidValue(Object value) {
+        if (value instanceof UUID uuid) {
+            return uuid;
+        }
+        return value == null ? null : UUID.fromString(value.toString());
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : value.toString();
+    }
+
+    private LocalDateTime dateTimeValue(Object value) {
+        if (value instanceof LocalDateTime dateTime) {
+            return dateTime;
+        }
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toLocalDateTime();
+        }
+        return null;
     }
 }

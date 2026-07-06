@@ -9,6 +9,8 @@ import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.domain.entity.User;
+import com.quadteknologi.crm.security.AppViewAccess;
+import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.service.OpportunityService;
 import com.quadteknologi.crm.ui.component.ActivityTimeline;
@@ -22,6 +24,7 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -30,6 +33,7 @@ import com.vaadin.flow.component.html.Hr;
 import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
+import com.vaadin.flow.component.masterdetaillayout.MasterDetailLayout;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
@@ -40,26 +44,29 @@ import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.binder.Binder;
 import com.vaadin.flow.data.binder.ValidationException;
+import com.vaadin.flow.data.renderer.LitRenderer;
 import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.BeforeEnterEvent;
 import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.RolesAllowed;
+import jakarta.annotation.security.PermitAll;
 
 import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
 
-@RolesAllowed({"Administrator", "Manager", "Sales"})
+@PermitAll
 @PageTitle("Opportunities | Quad CRM")
 @Route(value = "opportunities", layout = MainLayout.class)
 public class OpportunitiesView extends VerticalLayout implements BeforeEnterObserver {
@@ -68,31 +75,53 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
     private final OpportunityService opportunityService;
     private final ContactService contactService;
+    private final ViewAccessService viewAccessService;
     private KanbanBoard<Opportunity> kanbanBoard;
+    private Component activeContent;
+    private MasterDetailLayout gridLayout;
+    private List<OptionValue> pipelineStatuses = List.of();
+    private Map<String, List<Opportunity>> pipelineOpportunitiesByStatus = Map.of();
+    private boolean pipelineDataLoaded;
+    private ViewMode viewMode = ViewMode.KANBAN;
     private String searchTerm = "";
 
-    public OpportunitiesView(OpportunityService opportunityService, ContactService contactService) {
+    private enum ViewMode {
+        KANBAN,
+        GRID
+    }
+
+    public OpportunitiesView(
+            OpportunityService opportunityService,
+            ContactService contactService,
+            ViewAccessService viewAccessService) {
         this.opportunityService = opportunityService;
         this.contactService = contactService;
+        this.viewAccessService = viewAccessService;
 
         addClassName("page-view");
         setPadding(false);
         setSpacing(false);
         setSizeFull();
 
-        add(createHeader(), createKanbanBoard());
+        activeContent = createPipelineContent();
+        add(createHeader(), activeContent);
     }
 
     @Override
     public void beforeEnter(BeforeEnterEvent event) {
+        if (!viewAccessService.canAccess(AppViewAccess.OPPORTUNITIES)) {
+            viewAccessService.checkBeforeEnter(event, AppViewAccess.OPPORTUNITIES);
+            return;
+        }
+
         event.getLocation()
                 .getQueryParameters()
                 .getSingleParameter("opportunity")
-                .flatMap(this::parseLong)
-                .ifPresent(opportunityId -> {
+                .flatMap(this::parseUuid)
+                .ifPresent(opportunityPublicId -> {
                     try {
-                        Opportunity opportunity = opportunityService.findOpportunity(opportunityId);
-                        kanbanBoard.setDetail(createOpportunityDetail(opportunity));
+                        Opportunity opportunity = opportunityService.findOpportunity(opportunityPublicId);
+                        setDetail(createOpportunityDetail(opportunity));
                     } catch (RuntimeException exception) {
                         showError("Opportunity was not found");
                     }
@@ -116,7 +145,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
         Div actions = new Div();
         actions.addClassName("pipeline-header-actions");
-        actions.add(createSearchField("Search opportunities"), createOpportunityButton);
+        actions.add(createViewToggle(), createSearchField("Search opportunities"), createOpportunityButton);
 
         header.add(titleGroup, actions);
         return header;
@@ -136,10 +165,57 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         return search;
     }
 
+    private Component createViewToggle() {
+        Div toggle = new Div();
+        toggle.addClassName("pipeline-view-toggle");
+
+        Button kanbanButton = new Button("Kanban");
+        Button gridButton = new Button("Grid");
+        kanbanButton.addClassName("pipeline-view-toggle-button");
+        gridButton.addClassName("pipeline-view-toggle-button");
+        kanbanButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        gridButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+
+        kanbanButton.addClickListener(event -> switchViewMode(ViewMode.KANBAN, kanbanButton, gridButton));
+        gridButton.addClickListener(event -> switchViewMode(ViewMode.GRID, kanbanButton, gridButton));
+        updateViewToggleButtons(kanbanButton, gridButton);
+
+        toggle.add(kanbanButton, gridButton);
+        return toggle;
+    }
+
+    private void switchViewMode(ViewMode nextMode, Button kanbanButton, Button gridButton) {
+        if (viewMode == nextMode) {
+            return;
+        }
+        viewMode = nextMode;
+        updateViewToggleButtons(kanbanButton, gridButton);
+        refreshKanbanBoard();
+    }
+
+    private void updateViewToggleButtons(Button kanbanButton, Button gridButton) {
+        updateViewToggleButton(kanbanButton, viewMode == ViewMode.KANBAN);
+        updateViewToggleButton(gridButton, viewMode == ViewMode.GRID);
+    }
+
+    private void updateViewToggleButton(Button button, boolean active) {
+        button.getElement().setAttribute("aria-pressed", String.valueOf(active));
+        if (active) {
+            button.addClassName("is-active");
+        } else {
+            button.removeClassName("is-active");
+        }
+    }
+
+    private Component createPipelineContent() {
+        return viewMode == ViewMode.KANBAN ? createKanbanBoard() : createGridView();
+    }
+
     private Component createKanbanBoard() {
-        List<OptionValue> statuses = opportunityService.findPipelineStatuses();
+        ensurePipelineDataLoaded();
+        List<OptionValue> statuses = pipelineStatuses;
         Map<String, List<Opportunity>> opportunitiesByStatus =
-                filterOpportunitiesBySearch(opportunityService.findPipelineOpportunitiesByStatus());
+                filterOpportunitiesBySearch(pipelineOpportunitiesByStatus);
 
         kanbanBoard = new KanbanBoard<>(
                 "opportunity",
@@ -152,6 +228,208 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 this::createOpportunityDetail,
                 this::openCreateOpportunityForm);
         return kanbanBoard;
+    }
+
+    private Component createGridView() {
+        kanbanBoard = null;
+        gridLayout = new MasterDetailLayout();
+        gridLayout.addClassName("kanban-master-detail");
+        gridLayout.setSizeFull();
+        gridLayout.setMasterMinSize("720px");
+        gridLayout.setDetailSize("360px");
+        gridLayout.setOverlayMode(MasterDetailLayout.OverlayMode.DRAWER);
+        gridLayout.setForceOverlay(true);
+        gridLayout.addBackdropClickListener(event -> clearDetail());
+        gridLayout.addDetailEscapePressListener(event -> clearDetail());
+
+        Grid<Opportunity> grid = new Grid<>(Opportunity.class, false);
+        grid.addClassName("pipeline-grid");
+        grid.setSizeFull();
+        grid.addColumn(opportunityIdentityRenderer())
+                .setHeader("Opportunity")
+                .setAutoWidth(true)
+                .setFlexGrow(2)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        opportunity -> sortText(opportunity.getTitle()),
+                        String.CASE_INSENSITIVE_ORDER));
+        grid.addColumn(opportunityStageRenderer())
+                .setHeader("Stage")
+                .setAutoWidth(true)
+                .setFlexGrow(0)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        this::opportunityStageName,
+                        String.CASE_INSENSITIVE_ORDER));
+        grid.addColumn(opportunityValueRenderer())
+                .setHeader("Value")
+                .setAutoWidth(true)
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        opportunity -> amountOrZero(opportunity.getEstimatedAmount())));
+        grid.addColumn(opportunityForecastRenderer())
+                .setHeader("Forecast")
+                .setAutoWidth(true)
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator
+                        .comparing((Opportunity opportunity) -> opportunity.getExpectedCloseDate(),
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(opportunity -> probabilityOrZero(opportunity.getProbability())));
+        grid.addColumn(opportunityOwnerRenderer())
+                .setHeader("Owner")
+                .setAutoWidth(true)
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        opportunity -> sortText(opportunity.getAssignedTo() == null
+                                ? null
+                                : opportunity.getAssignedTo().getFullName()),
+                        String.CASE_INSENSITIVE_ORDER));
+        grid.addColumn(opportunityOpenRenderer()).setHeader("").setAutoWidth(true).setFlexGrow(0);
+        grid.setItems(currentOpportunities());
+        grid.asSingleSelect().addValueChangeListener(event -> {
+            if (event.getValue() != null) {
+                setDetail(createOpportunityDetail(opportunityService.findOpportunity(event.getValue().getId())));
+            }
+        });
+
+        gridLayout.setMaster(grid);
+        return gridLayout;
+    }
+
+    private LitRenderer<Opportunity> opportunityIdentityRenderer() {
+        return LitRenderer.<Opportunity>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.title}</span>
+                  <span class="pipeline-grid-secondary">${item.meta}</span>
+                </div>
+                """)
+                .withProperty("title", opportunity -> valueOrDash(opportunity.getTitle()))
+                .withProperty("meta", opportunity -> displayCompanyName(opportunity) + " | "
+                        + displayPrimaryName(opportunity));
+    }
+
+    private LitRenderer<Opportunity> opportunityStageRenderer() {
+        return LitRenderer.<Opportunity>of("""
+                <span class="pipeline-grid-status-badge ${item.colorClass}">${item.stage}</span>
+                """)
+                .withProperty("stage", this::opportunityStageName)
+                .withProperty("colorClass", opportunity -> "kanban-color-" + normalizeColor(
+                        Optional.ofNullable(opportunity.getStatus()).map(OptionValue::getColor).orElse(null)));
+    }
+
+    private LitRenderer<Opportunity> opportunityValueRenderer() {
+        return LitRenderer.<Opportunity>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.amount}</span>
+                  <span class="pipeline-grid-secondary">Margin ${item.margin}</span>
+                </div>
+                """)
+                .withProperty("amount", opportunity -> formatAmountOrDash(opportunity.getEstimatedAmount()))
+                .withProperty("margin", opportunity -> formatAmountOrDash(opportunity.getMargin()));
+    }
+
+    private LitRenderer<Opportunity> opportunityForecastRenderer() {
+        return LitRenderer.<Opportunity>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.probability}</span>
+                  <span class="pipeline-grid-secondary">${item.closeDate}</span>
+                </div>
+                """)
+                .withProperty("probability", opportunity -> formatProbabilityOrDash(opportunity.getProbability()))
+                .withProperty("closeDate", opportunity -> opportunity.getExpectedCloseDate() == null
+                        ? "No close date"
+                        : "Close " + opportunity.getExpectedCloseDate().format(DATE_FORMAT));
+    }
+
+    private LitRenderer<Opportunity> opportunityOwnerRenderer() {
+        return LitRenderer.<Opportunity>of("""
+                <div class="pipeline-grid-stack-cell">
+                  <span class="pipeline-grid-primary">${item.owner}</span>
+                  <span class="pipeline-grid-secondary">${item.lead}</span>
+                </div>
+                """)
+                .withProperty("owner", opportunity -> opportunity.getAssignedTo() == null
+                        ? "Unassigned"
+                        : opportunity.getAssignedTo().getFullName())
+                .withProperty("lead", opportunity -> opportunity.getLead() == null
+                        ? "Direct opportunity"
+                        : "Lead: " + opportunity.getLead().getTitle());
+    }
+
+    private LitRenderer<Opportunity> opportunityOpenRenderer() {
+        return LitRenderer.<Opportunity>of("""
+                <button class="pipeline-grid-open-action" @click="${openOpportunity}">Open</button>
+                """)
+                .withFunction("openOpportunity", opportunity -> setDetail(
+                        createOpportunityDetail(opportunityService.findOpportunity(opportunity.getId()))));
+    }
+
+    private Component createOpportunityGridIdentity(Opportunity opportunity) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span title = new Span(opportunity.getTitle());
+        title.addClassName("pipeline-grid-primary");
+        Span meta = new Span(displayCompanyName(opportunity) + " | " + displayPrimaryName(opportunity));
+        meta.addClassName("pipeline-grid-secondary");
+
+        cell.add(title, meta);
+        return cell;
+    }
+
+    private Component createOpportunityStageBadge(Opportunity opportunity) {
+        Span badge = new Span(Optional.ofNullable(opportunity.getStatus())
+                .map(OptionValue::getName)
+                .orElse(opportunity.getStatusCode()));
+        badge.addClassNames("pipeline-grid-status-badge", "kanban-color-" + normalizeColor(
+                Optional.ofNullable(opportunity.getStatus()).map(OptionValue::getColor).orElse(null)));
+        return badge;
+    }
+
+    private Component createOpportunityGridValue(Opportunity opportunity) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span amount = new Span(formatAmountOrDash(opportunity.getEstimatedAmount()));
+        amount.addClassName("pipeline-grid-primary");
+        Span margin = new Span("Margin " + formatAmountOrDash(opportunity.getMargin()));
+        margin.addClassName("pipeline-grid-secondary");
+
+        cell.add(amount, margin);
+        return cell;
+    }
+
+    private Component createOpportunityGridForecast(Opportunity opportunity) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span probability = new Span(formatProbabilityOrDash(opportunity.getProbability()));
+        probability.addClassName("pipeline-grid-primary");
+        Span closeDate = new Span(opportunity.getExpectedCloseDate() == null
+                ? "No close date"
+                : "Close " + opportunity.getExpectedCloseDate().format(DATE_FORMAT));
+        closeDate.addClassName("pipeline-grid-secondary");
+
+        cell.add(probability, closeDate);
+        return cell;
+    }
+
+    private Component createOpportunityGridOwner(Opportunity opportunity) {
+        Div cell = new Div();
+        cell.addClassName("pipeline-grid-stack-cell");
+
+        Span owner = new Span(opportunity.getAssignedTo() == null
+                ? "Unassigned"
+                : opportunity.getAssignedTo().getFullName());
+        owner.addClassName("pipeline-grid-primary");
+        Span lead = new Span(opportunity.getLead() == null ? "Direct opportunity" : "Lead: " + opportunity.getLead().getTitle());
+        lead.addClassName("pipeline-grid-secondary");
+
+        cell.add(owner, lead);
+        return cell;
     }
 
     private void openCreateOpportunityForm(OptionValue defaultStatus) {
@@ -276,6 +554,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         });
 
         CurrencyField estimatedAmount = new CurrencyField("Estimated Amount");
+        CurrencyField margin = new CurrencyField("Margin");
 
         IntegerField probability = new IntegerField("Probability");
         probability.setMin(0);
@@ -330,6 +609,10 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 .asRequired("Estimated Amount is required")
                 .bind(OpportunityService.OpportunityRequest::getEstimatedAmount, OpportunityService.OpportunityRequest::setEstimatedAmount);
 
+        binder.forField(margin)
+                .asRequired("Margin is required")
+                .bind(OpportunityService.OpportunityRequest::getMargin, OpportunityService.OpportunityRequest::setMargin);
+
         binder.forField(probability)
                 .asRequired("Probability is required")
                 .bind(OpportunityService.OpportunityRequest::getProbability, OpportunityService.OpportunityRequest::setProbability);
@@ -377,6 +660,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 personRow,
                 sectionDivider("Forecast"),
                 estimatedAmount,
+                margin,
                 probability,
                 expectedClose,
                 assignedTo,
@@ -390,7 +674,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 notes);
 
         detail.add(formBody, createOpportunityFormActions(opportunity, request, binder));
-        kanbanBoard.setDetail(detail);
+        setDetail(detail);
     }
 
     private OpportunityService.OpportunityRequest createRequestFromOpportunity(Opportunity opportunity) {
@@ -400,6 +684,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         request.setCompany(opportunity.getCompany());
         request.setPerson(opportunity.getPerson());
         request.setEstimatedAmount(opportunity.getEstimatedAmount());
+        request.setMargin(opportunity.getMargin());
         request.setProbability(opportunity.getProbability());
         request.setExpectedCloseDate(opportunity.getExpectedCloseDate());
         request.setAssignedTo(opportunity.getAssignedTo());
@@ -629,7 +914,9 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        dialog.add(name, industry, website, email, phone, country, province, city, address, dialogActions(save, dialog));
+        dialog.add(
+                quickCreateBody(name, industry, website, email, phone, country, province, city, address),
+                dialogActions(save, dialog));
         dialog.open();
     }
 
@@ -697,7 +984,9 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        dialog.add(fullName, company, jobTitle, email, phone, whatsapp, dialogActions(save, dialog));
+        dialog.add(
+                quickCreateBody(fullName, company, jobTitle, email, phone, whatsapp),
+                dialogActions(save, dialog));
         dialog.open();
     }
 
@@ -719,12 +1008,19 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         return dialog;
     }
 
+    private Component quickCreateBody(Component... fields) {
+        Div body = new Div();
+        body.addClassName("quick-create-body");
+        body.add(fields);
+        return body;
+    }
+
     private Component dialogActions(Button save, Dialog dialog) {
         Button cancel = new Button("Cancel", event -> dialog.close());
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
         HorizontalLayout actions = new HorizontalLayout(save, cancel);
-        actions.addClassName("pipeline-form-actions");
+        actions.addClassNames("pipeline-form-actions", "quick-create-footer");
         actions.setPadding(false);
         actions.setSpacing(true);
         return actions;
@@ -743,7 +1039,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     private Div createOpportunityFormShell(String titleText, String subtitleText, boolean editing) {
         Div detail = new Div();
         detail.addClassName("pipeline-form-detail");
-        kanbanBoard.setDetailSize("430px");
+        setDetailSize("430px");
 
         Div header = new Div();
         header.addClassName("pipeline-detail-header");
@@ -754,7 +1050,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         subtitle.addClassName("pipeline-form-subtitle");
         titleGroup.add(title, subtitle);
 
-        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> kanbanBoard.setDetail(null));
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> clearDetail());
         close.addClassName("pipeline-detail-close");
         close.getElement().setAttribute("aria-label",
                 editing ? "Close edit opportunity form" : "Close create opportunity form");
@@ -774,9 +1070,9 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 Opportunity savedOpportunity = editing
                         ? opportunityService.updateOpportunity(opportunity.getId(), request)
                         : opportunityService.createOpportunity(request);
-                refreshKanbanBoard();
+                refreshPipelineDataAndBoard();
                 showSuccess(editing ? "Opportunity updated" : "Opportunity created");
-                kanbanBoard.setDetail(createOpportunityDetail(savedOpportunity));
+                setDetail(createOpportunityDetail(savedOpportunity));
             } catch (ValidationException exception) {
                 showError("Please complete required fields");
             } catch (IllegalArgumentException exception) {
@@ -785,7 +1081,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
-        Button cancel = new Button("Cancel", event -> kanbanBoard.setDetail(null));
+        Button cancel = new Button("Cancel", event -> clearDetail());
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
         HorizontalLayout actions = new HorizontalLayout(save, cancel);
@@ -805,8 +1101,59 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     }
 
     private void refreshKanbanBoard() {
-        remove(kanbanBoard);
-        add(createKanbanBoard());
+        if (activeContent != null) {
+            remove(activeContent);
+        }
+        activeContent = createPipelineContent();
+        add(activeContent);
+    }
+
+    private void refreshPipelineDataAndBoard() {
+        pipelineDataLoaded = false;
+        refreshKanbanBoard();
+    }
+
+    private void ensurePipelineDataLoaded() {
+        if (pipelineDataLoaded) {
+            return;
+        }
+        pipelineStatuses = opportunityService.findPipelineStatuses();
+        pipelineOpportunitiesByStatus = opportunityService.findPipelineOpportunitiesByStatus();
+        pipelineDataLoaded = true;
+    }
+
+    private List<Opportunity> currentOpportunities() {
+        ensurePipelineDataLoaded();
+        Map<String, List<Opportunity>> opportunitiesByStatus =
+                filterOpportunitiesBySearch(pipelineOpportunitiesByStatus);
+        return pipelineStatuses
+                .stream()
+                .flatMap(status -> opportunitiesByStatus.getOrDefault(status.getCode(), List.of()).stream())
+                .toList();
+    }
+
+    private void setDetail(Component detail) {
+        if (viewMode == ViewMode.KANBAN && kanbanBoard != null) {
+            kanbanBoard.setDetail(detail);
+            return;
+        }
+        if (gridLayout == null) {
+            return;
+        }
+        gridLayout.setDetail(detail);
+    }
+
+    private void clearDetail() {
+        setDetail(null);
+    }
+
+    private void setDetailSize(String size) {
+        if (viewMode == ViewMode.KANBAN && kanbanBoard != null) {
+            kanbanBoard.setDetailSize(size);
+        }
+        if (gridLayout != null) {
+            gridLayout.setDetailSize(size);
+        }
     }
 
     private Map<String, List<Opportunity>> filterOpportunitiesBySearch(
@@ -832,6 +1179,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 || containsSearch(opportunity.getStatusCode(), keyword)
                 || containsSearch(Optional.ofNullable(opportunity.getStatus()).map(OptionValue::getName).orElse(null), keyword)
                 || containsSearch(formatAmount(opportunity.getEstimatedAmount()), keyword)
+                || containsSearch(formatAmount(opportunity.getMargin()), keyword)
                 || containsSearch(formatProbability(opportunity.getProbability()), keyword)
                 || containsSearch(opportunity.getAssignedTo() == null ? null : opportunity.getAssignedTo().getFullName(), keyword);
     }
@@ -859,9 +1207,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     private Component createOpportunityDetail(Opportunity opportunity) {
         Div detail = new Div();
         detail.addClassName("pipeline-detail");
-        if (kanbanBoard != null) {
-            kanbanBoard.setDetailSize("360px");
-        }
+        setDetailSize("360px");
 
         Div detailHeader = new Div();
         detailHeader.addClassName("pipeline-detail-header");
@@ -876,7 +1222,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         Button edit = new Button("Edit", VaadinIcon.EDIT.create(), event -> openEditOpportunityForm(opportunity));
         edit.addClassName("pipeline-detail-edit");
 
-        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> kanbanBoard.setDetail(null));
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> clearDetail());
         close.addClassName("pipeline-detail-close");
         close.getElement().setAttribute("aria-label", "Close opportunity detail");
 
@@ -895,6 +1241,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 detailRow("Contact", displayPrimaryName(opportunity)),
                 detailRow("Lead", opportunity.getLead() == null ? "-" : opportunity.getLead().getTitle()),
                 detailRow("Estimated amount", formatAmountOrDash(opportunity.getEstimatedAmount())),
+                detailRow("Margin", formatAmountOrDash(opportunity.getMargin())),
                 detailRow("Probability", formatProbabilityOrDash(opportunity.getProbability())),
                 detailRow("Expected close", opportunity.getExpectedCloseDate() == null ? "-" : opportunity.getExpectedCloseDate().format(DATE_FORMAT)),
                 detailRow("SO Number", opportunity.getSoNumber()),
@@ -972,7 +1319,9 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
             }
         });
 
-        dialog.add(soNumber, contractPoNumber, dialogActions(save, dialog));
+        dialog.add(
+                quickCreateBody(soNumber, contractPoNumber),
+                dialogActions(save, dialog));
         dialog.open();
     }
 
@@ -984,12 +1333,12 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         try {
             Opportunity updatedOpportunity = opportunityService.updateOpportunityStatus(
                     opportunity.getId(), nextStatus, soNumber, contractPoNumber);
-            refreshKanbanBoard();
+            refreshPipelineDataAndBoard();
             showSuccess("Opportunity moved to " + nextStatus.getName());
-            kanbanBoard.setDetail(createOpportunityDetail(updatedOpportunity));
+            setDetail(createOpportunityDetail(updatedOpportunity));
         } catch (IllegalArgumentException exception) {
             showError(exception.getMessage());
-            kanbanBoard.setDetail(createOpportunityDetail(opportunityService.findOpportunity(opportunity.getId())));
+            setDetail(createOpportunityDetail(opportunityService.findOpportunity(opportunity.getId())));
         }
     }
 
@@ -1068,6 +1417,10 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         return opportunity.getCompany() == null ? "No company" : opportunity.getCompany().getName();
     }
 
+    private String opportunityStageName(Opportunity opportunity) {
+        return opportunity.getStatus() == null ? valueOrDash(opportunity.getStatusCode()) : opportunity.getStatus().getName();
+    }
+
     private String displayPersonOption(Person person) {
         if (person.getCompany() == null) {
             return person.getFullName();
@@ -1097,10 +1450,10 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         return status != null && Objects.equals("WON", status.getCode());
     }
 
-    private Optional<Long> parseLong(String value) {
+    private Optional<UUID> parseUuid(String value) {
         try {
-            return Optional.of(Long.parseLong(value));
-        } catch (NumberFormatException exception) {
+            return Optional.of(UUID.fromString(value));
+        } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
     }
@@ -1138,6 +1491,18 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
     private String valueOrEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String sortText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private BigDecimal amountOrZero(BigDecimal amount) {
+        return amount == null ? BigDecimal.ZERO : amount;
+    }
+
+    private int probabilityOrZero(Integer probability) {
+        return probability == null ? 0 : probability;
     }
 
     private String productTypeName(OptionValue productType, String fallbackCode) {

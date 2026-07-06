@@ -1,11 +1,15 @@
 package com.quadteknologi.crm.ui.layout;
 
 import com.quadteknologi.crm.domain.entity.User;
+import com.quadteknologi.crm.security.AppViewAccess;
 import com.quadteknologi.crm.security.CurrentUserService;
+import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.views.ContactView;
+import com.quadteknologi.crm.views.DashboardSalesView;
 import com.quadteknologi.crm.views.DashboardView;
 import com.quadteknologi.crm.views.LeadsView;
 import com.quadteknologi.crm.views.OpportunitiesView;
+import com.quadteknologi.crm.views.RoleAccessView;
 import com.quadteknologi.crm.views.UserSettingsView;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.ModalityMode;
@@ -29,14 +33,12 @@ import java.util.Optional;
 @PermitAll
 public class MainLayout extends AppLayout {
 
-    private static final String ROLE_ADMINISTRATOR = "Administrator";
-    private static final String ROLE_MANAGER = "Manager";
-    private static final String ROLE_SALES = "Sales";
-
     private final CurrentUserService currentUserService;
+    private final ViewAccessService viewAccessService;
 
-    public MainLayout(CurrentUserService currentUserService) {
+    public MainLayout(CurrentUserService currentUserService, ViewAccessService viewAccessService) {
         this.currentUserService = currentUserService;
+        this.viewAccessService = viewAccessService;
 
         setPrimarySection(Section.DRAWER);
 
@@ -72,16 +74,29 @@ public class MainLayout extends AppLayout {
 
         VerticalLayout navigationLayout = new VerticalLayout();
         navigationLayout.setSpacing(true);
-        if (canAccessWorkspaceMenus()) {
-            navigationLayout.add(
-                    createNavLink("Dashboard", VaadinIcon.DASHBOARD, DashboardView.class),
-                    createNavLink("Leads", VaadinIcon.BULLSEYE, LeadsView.class),
-                    createNavLink("Opportunity", VaadinIcon.TRENDING_UP, OpportunitiesView.class),
-                    createNavLink("Contact", VaadinIcon.USER, ContactView.class));
+        if (viewAccessService.canAccess(AppViewAccess.DASHBOARD)) {
+            navigationLayout.add(createNavLink("Dashboard", VaadinIcon.DASHBOARD, DashboardView.class));
         }
-
-        if (canAccessUserSettingsMenu()) {
-            navigationLayout.add(createNavLink("User Settings", VaadinIcon.COG, UserSettingsView.class));
+        if (viewAccessService.canAccess(AppViewAccess.DASHBOARD_SALES)
+                && (currentUserService.hasRole("Manager") || currentUserService.hasRole("Administrator"))) {
+            navigationLayout.add(createNavLink("Dashboard Sales", VaadinIcon.CHART, DashboardSalesView.class));
+        }
+        if (viewAccessService.canAccess(AppViewAccess.LEADS)) {
+            navigationLayout.add(createNavLink("Leads", VaadinIcon.BULLSEYE, LeadsView.class));
+        }
+        if (viewAccessService.canAccess(AppViewAccess.OPPORTUNITIES)) {
+            navigationLayout.add(createNavLink("Opportunity", VaadinIcon.TRENDING_UP, OpportunitiesView.class));
+        }
+        if (viewAccessService.canAccess(AppViewAccess.CONTACT)) {
+            navigationLayout.add(createNavLink("Contact", VaadinIcon.USER, ContactView.class));
+        }
+        if (viewAccessService.canAccess(AppViewAccess.USER_SETTINGS)) {
+            navigationLayout.add(
+                    createNavLink("User Settings", VaadinIcon.COG, UserSettingsView.class));
+        }
+        if (viewAccessService.canAccess(AppViewAccess.ROLE_ACCESS)) {
+            navigationLayout.add(
+                    createNavLink("Role Access", VaadinIcon.KEY, RoleAccessView.class));
         }
 
         Div spacer = new Div();
@@ -98,16 +113,6 @@ public class MainLayout extends AppLayout {
         link.setRoute(viewClass);
         link.add(icon.create(), new Span(label));
         return link;
-    }
-
-    private boolean canAccessWorkspaceMenus() {
-        return currentUserService.hasRole(ROLE_ADMINISTRATOR)
-                || currentUserService.hasRole(ROLE_MANAGER)
-                || currentUserService.hasRole(ROLE_SALES);
-    }
-
-    private boolean canAccessUserSettingsMenu() {
-        return currentUserService.hasRole(ROLE_ADMINISTRATOR);
     }
 
     private Component createUserMenu() {

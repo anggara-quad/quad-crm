@@ -1,22 +1,19 @@
 package com.quadteknologi.crm.views;
 
-import com.quadteknologi.crm.ui.layout.MainLayout;
-import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.router.BeforeEnterEvent;
+import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.RolesAllowed;
+import jakarta.annotation.security.PermitAll;
 
-@RolesAllowed({"Administrator", "Manager", "Sales"})
+@PermitAll
 @PageTitle("Persons | Quad CRM")
-@Route(value = "persons", layout = MainLayout.class)
-public class PersonsView extends VerticalLayout {
+@Route("persons")
+public class PersonsView extends VerticalLayout implements BeforeEnterObserver {
 
-    public PersonsView() {
-        addClassName("page-view");
-        setPadding(false);
-        setSpacing(false);
-
-        add(new H1("Persons"));
+    @Override
+    public void beforeEnter(BeforeEnterEvent event) {
+        event.forwardTo(ContactView.class);
     }
 }
