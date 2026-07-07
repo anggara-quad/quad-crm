@@ -13,15 +13,29 @@ import com.quadteknologi.crm.domain.repository.LeadRepository;
 import com.quadteknologi.crm.domain.repository.OpportunityRepository;
 import com.quadteknologi.crm.domain.repository.PersonRepository;
 import com.quadteknologi.crm.domain.repository.RegionRepository;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class ContactService {
@@ -178,6 +192,132 @@ public class ContactService {
         return regionRepository.findByParentIdAndRegionLevelAndActiveTrueOrderByNameAsc(province.getId(), (short) 2);
     }
 
+    @Transactional(readOnly = true)
+    public ContactImportPreview previewContactImport(InputStream inputStream) {
+        List<ContactImportRow> rows = readContactImportRows(inputStream);
+        if (rows.isEmpty()) {
+            return new ContactImportPreview(List.of(), 0, 0, 0, 1);
+        }
+
+        ImportLookup lookup = buildImportLookup();
+        Map<String, ContactImportRow> firstOrganizationByKey = new LinkedHashMap<>();
+        Set<String> importPersonKeys = new java.util.LinkedHashSet<>();
+        List<ContactImportRow> validatedRows = new ArrayList<>();
+
+        for (ContactImportRow row : rows) {
+            List<String> errors = new ArrayList<>();
+            validateRequired(row, errors);
+
+            String organizationKey = normalizeKey(row.organizationName());
+            Company existingCompany = lookup.companiesByName().get(organizationKey);
+            ContactImportRow firstOrganization = firstOrganizationByKey.putIfAbsent(organizationKey, row);
+            if (firstOrganization != null && !sameOrganization(firstOrganization, row)) {
+                errors.add("Duplicate organization name has different organization data");
+            }
+
+            Country country = lookup.countriesByName().get(normalizeKey(row.country()));
+            Region province = null;
+            Region city = null;
+            if (country == null) {
+                errors.add("Country not found or inactive: " + valueOrFallback(row.country(), "-"));
+            } else {
+                province = lookup.provincesByCountryIdAndName().get(regionKey(country.getId(), row.province()));
+                if (province == null) {
+                    errors.add("Province not found under " + country.getName() + ": "
+                            + valueOrFallback(row.province(), "-"));
+                } else {
+                    city = lookup.citiesByProvinceIdAndName().get(regionKey(province.getId(), row.city()));
+                    if (city == null) {
+                        errors.add("City not found under " + province.getName() + ": "
+                                + valueOrFallback(row.city(), "-"));
+                    }
+                }
+            }
+
+            String personKey = personImportKey(row);
+            if (personKey == null) {
+                errors.add("Person name or email is required");
+            } else {
+                if (lookup.personKeys().contains(personKey)) {
+                    errors.add("Person already exists");
+                }
+                if (!importPersonKeys.add(personKey)) {
+                    errors.add("Duplicate person in import file");
+                }
+            }
+
+            validatedRows.add(row.withValidation(
+                    errors,
+                    existingCompany == null ? null : existingCompany.getId(),
+                    country == null ? null : country.getId(),
+                    province == null ? null : province.getId(),
+                    city == null ? null : city.getId()));
+        }
+
+        long newOrganizations = validatedRows.stream()
+                .filter(row -> row.valid() && row.existingCompanyId() == null)
+                .map(row -> normalizeKey(row.organizationName()))
+                .distinct()
+                .count();
+        long existingOrganizations = validatedRows.stream()
+                .filter(row -> row.valid() && row.existingCompanyId() != null)
+                .map(ContactImportRow::existingCompanyId)
+                .distinct()
+                .count();
+        long newPersons = validatedRows.stream().filter(ContactImportRow::valid).count();
+        long errors = validatedRows.stream().filter(row -> !row.valid()).count();
+
+        return new ContactImportPreview(validatedRows, newOrganizations, existingOrganizations, newPersons, errors);
+    }
+
+    @Transactional
+    public ContactImportResult saveContactImport(ContactImportPreview preview) {
+        if (preview == null || !preview.valid()) {
+            throw new IllegalArgumentException("Import file still has validation errors");
+        }
+
+        Map<String, Company> importedCompanies = new LinkedHashMap<>();
+        long createdCompanies = 0;
+        long createdPersons = 0;
+
+        for (ContactImportRow row : preview.rows()) {
+            Company company;
+            if (row.existingCompanyId() != null) {
+                company = companyRepository.findById(row.existingCompanyId()).orElseThrow();
+                dataAccessService.assertCanAccessCreatedBy("organization", company.getCreatedBy());
+            } else {
+                String organizationKey = normalizeKey(row.organizationName());
+                company = importedCompanies.get(organizationKey);
+                if (company == null) {
+                    company = new Company();
+                    company.setName(row.organizationName());
+                    company.setIndustry(row.industry());
+                    company.setEmail(row.organizationEmail());
+                    company.setPhone(row.organizationPhone());
+                    company.setCountry(countryRepository.findById(row.countryId()).orElseThrow());
+                    company.setProvince(regionRepository.findById(row.provinceId()).orElseThrow());
+                    company.setCity(regionRepository.findById(row.cityId()).orElseThrow());
+                    company.setAddress(row.address());
+                    company = saveCompany(company);
+                    importedCompanies.put(organizationKey, company);
+                    createdCompanies++;
+                }
+            }
+
+            Person person = new Person();
+            person.setCompany(company);
+            person.setFullName(row.personName());
+            person.setJobTitle(row.personTitle());
+            person.setEmail(row.personEmail());
+            person.setPhone(row.personPhone());
+            person.setWhatsapp(row.personPhone());
+            savePerson(person);
+            createdPersons++;
+        }
+
+        return new ContactImportResult(createdCompanies, createdPersons);
+    }
+
     @Transactional
     public Person savePerson(Person person) {
         User currentUser = dataAccessService.requireCurrentUserReference();
@@ -266,6 +406,156 @@ public class ContactService {
         company.setCity(city);
     }
 
+    private List<ContactImportRow> readContactImportRows(InputStream inputStream) {
+        try (Workbook workbook = WorkbookFactory.create(inputStream)) {
+            Sheet sheet = workbook.getSheetAt(0);
+            DataFormatter formatter = new DataFormatter(Locale.ROOT);
+            List<ContactImportRow> rows = new ArrayList<>();
+            for (int index = 2; index <= sheet.getLastRowNum(); index++) {
+                Row row = sheet.getRow(index);
+                if (row == null || isImportRowEmpty(row, formatter)) {
+                    continue;
+                }
+                rows.add(new ContactImportRow(
+                        index + 1,
+                        cell(row, 0, formatter),
+                        cell(row, 1, formatter),
+                        cell(row, 2, formatter),
+                        cell(row, 3, formatter),
+                        cell(row, 4, formatter),
+                        cell(row, 5, formatter),
+                        cell(row, 6, formatter),
+                        cell(row, 7, formatter),
+                        cell(row, 8, formatter),
+                        cell(row, 9, formatter),
+                        cell(row, 10, formatter),
+                        cell(row, 11, formatter),
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null));
+            }
+            return rows;
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Unable to read Excel file");
+        }
+    }
+
+    private boolean isImportRowEmpty(Row row, DataFormatter formatter) {
+        for (int index = 0; index < 12; index++) {
+            if (trimToNull(cell(row, index, formatter)) != null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String cell(Row row, int index, DataFormatter formatter) {
+        if (row.getCell(index) == null) {
+            return null;
+        }
+        return trimToNull(formatter.formatCellValue(row.getCell(index)));
+    }
+
+    private void validateRequired(ContactImportRow row, List<String> errors) {
+        require(row.organizationName(), "Organization name", errors);
+        require(row.industry(), "Industry", errors);
+        require(row.organizationEmail(), "Organization email", errors);
+        require(row.organizationPhone(), "Organization phone", errors);
+        require(row.country(), "Country", errors);
+        require(row.province(), "Province", errors);
+        require(row.city(), "City", errors);
+        require(row.address(), "Address", errors);
+        require(row.personName(), "Person name", errors);
+        require(row.personTitle(), "Person title", errors);
+        require(row.personEmail(), "Person email", errors);
+        require(row.personPhone(), "Person phone", errors);
+    }
+
+    private void require(String value, String label, List<String> errors) {
+        if (trimToNull(value) == null) {
+            errors.add(label + " is required");
+        }
+    }
+
+    private ImportLookup buildImportLookup() {
+        List<Country> countries = findActiveCountries();
+        Map<String, Country> countriesByName = countries.stream()
+                .collect(Collectors.toMap(country -> normalizeKey(country.getName()), Function.identity(),
+                        (current, replacement) -> current, LinkedHashMap::new));
+
+        Map<String, Region> provincesByCountryIdAndName = new LinkedHashMap<>();
+        Map<String, Region> citiesByProvinceIdAndName = new LinkedHashMap<>();
+        for (Country country : countries) {
+            for (Region province : findActiveProvinces(country)) {
+                provincesByCountryIdAndName.put(regionKey(country.getId(), province.getName()), province);
+                for (Region city : findActiveCities(province)) {
+                    citiesByProvinceIdAndName.put(regionKey(province.getId(), city.getName()), city);
+                }
+            }
+        }
+
+        Map<String, Company> companiesByName = findAllCompanies().stream()
+                .collect(Collectors.toMap(company -> normalizeKey(company.getName()), Function.identity(),
+                        (current, replacement) -> current, LinkedHashMap::new));
+
+        Set<String> personKeys = findAllPersons().stream()
+                .map(this::personExistingKey)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+
+        return new ImportLookup(countriesByName, provincesByCountryIdAndName, citiesByProvinceIdAndName,
+                companiesByName, personKeys);
+    }
+
+    private boolean sameOrganization(ContactImportRow left, ContactImportRow right) {
+        return Objects.equals(normalizeKey(left.industry()), normalizeKey(right.industry()))
+                && Objects.equals(normalizeKey(left.organizationEmail()), normalizeKey(right.organizationEmail()))
+                && Objects.equals(normalizeKey(left.organizationPhone()), normalizeKey(right.organizationPhone()))
+                && Objects.equals(normalizeKey(left.country()), normalizeKey(right.country()))
+                && Objects.equals(normalizeKey(left.province()), normalizeKey(right.province()))
+                && Objects.equals(normalizeKey(left.city()), normalizeKey(right.city()))
+                && Objects.equals(normalizeKey(left.address()), normalizeKey(right.address()));
+    }
+
+    private String personExistingKey(Person person) {
+        if (trimToNull(person.getEmail()) != null) {
+            return "email:" + normalizeKey(person.getEmail());
+        }
+        return "name:" + normalizeKey(person.getFullName()) + "|company:" + normalizeKey(personCompanyName(person));
+    }
+
+    private String personImportKey(ContactImportRow row) {
+        if (trimToNull(row.personEmail()) != null) {
+            return "email:" + normalizeKey(row.personEmail());
+        }
+        if (trimToNull(row.personName()) == null || trimToNull(row.organizationName()) == null) {
+            return null;
+        }
+        return "name:" + normalizeKey(row.personName()) + "|company:" + normalizeKey(row.organizationName());
+    }
+
+    private String personCompanyName(Person person) {
+        return person.getCompany() == null ? null : person.getCompany().getName();
+    }
+
+    private String regionKey(Long parentId, String name) {
+        return parentId + ":" + normalizeKey(name);
+    }
+
+    private String normalizeKey(String value) {
+        return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private String valueOrFallback(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     private Long visibleCreatedById() {
         return dataAccessService.isSalesScope() ? dataAccessService.requireCurrentUserId() : null;
     }
@@ -348,5 +638,91 @@ public class ContactService {
             return timestamp.toLocalDateTime();
         }
         return null;
+    }
+
+    private record ImportLookup(
+            Map<String, Country> countriesByName,
+            Map<String, Region> provincesByCountryIdAndName,
+            Map<String, Region> citiesByProvinceIdAndName,
+            Map<String, Company> companiesByName,
+            Set<String> personKeys) {
+    }
+
+    public record ContactImportPreview(
+            List<ContactImportRow> rows,
+            long newOrganizations,
+            long existingOrganizations,
+            long newPersons,
+            long errors) {
+
+        public boolean valid() {
+            return !rows.isEmpty() && errors == 0;
+        }
+    }
+
+    public record ContactImportRow(
+            int rowNumber,
+            String organizationName,
+            String industry,
+            String organizationEmail,
+            String organizationPhone,
+            String country,
+            String province,
+            String city,
+            String address,
+            String personName,
+            String personTitle,
+            String personEmail,
+            String personPhone,
+            List<String> errors,
+            Long existingCompanyId,
+            Long countryId,
+            Long provinceId,
+            Long cityId) {
+
+        public boolean valid() {
+            return errors == null || errors.isEmpty();
+        }
+
+        public String status() {
+            if (!valid()) {
+                return "Invalid";
+            }
+            return existingCompanyId == null ? "Ready - new organization" : "Ready - existing organization";
+        }
+
+        public String errorText() {
+            return valid() ? "-" : String.join("; ", errors);
+        }
+
+        ContactImportRow withValidation(
+                List<String> errors,
+                Long existingCompanyId,
+                Long countryId,
+                Long provinceId,
+                Long cityId) {
+            return new ContactImportRow(
+                    rowNumber,
+                    organizationName,
+                    industry,
+                    organizationEmail,
+                    organizationPhone,
+                    country,
+                    province,
+                    city,
+                    address,
+                    personName,
+                    personTitle,
+                    personEmail,
+                    personPhone,
+                    List.copyOf(errors),
+                    existingCompanyId,
+                    countryId,
+                    provinceId,
+                    cityId);
+        }
+    }
+
+    public record ContactImportResult(long createdOrganizations, long createdPersons) {
     }
 }

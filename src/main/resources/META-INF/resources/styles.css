@@ -1374,6 +1374,111 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
     margin: 0;
 }
 
+.contact-import-upload {
+    flex: 0 0 auto;
+}
+
+.contact-import-upload vaadin-upload-file-list {
+    display: none;
+}
+
+.contact-import-dialog {
+    box-sizing: border-box;
+    width: min(1120px, calc(100vw - 32px));
+}
+
+.contact-import-dialog::part(content) {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    max-height: min(760px, calc(100vh - 48px));
+    padding: 0;
+    width: min(1120px, calc(100vw - 32px));
+}
+
+.contact-import-header {
+    align-items: flex-start;
+    border-bottom: 1px solid #E4E7EC;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 18px 22px;
+}
+
+.contact-import-header h3 {
+    color: #111827;
+    font-size: 18px;
+    line-height: 1.25;
+    margin: 0;
+}
+
+.contact-import-header p {
+    color: #667085;
+    font-size: 13px;
+    margin: 4px 0 0;
+}
+
+.contact-import-summary {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 16px 22px;
+}
+
+.contact-import-summary-item {
+    background: #F8FAFC;
+    border: 1px solid #E4E7EC;
+    border-radius: 8px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+}
+
+.contact-import-summary-number {
+    color: #111827;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.contact-import-summary-label {
+    color: #667085;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.contact-import-grid {
+    border-top: 1px solid #E4E7EC;
+    flex: 1 1 auto;
+    min-height: 320px;
+}
+
+.contact-import-empty {
+    color: #667085;
+    font-size: 14px;
+    padding: 8px 22px 22px;
+}
+
+.contact-import-actions {
+    align-items: center;
+    border-top: 1px solid #E4E7EC;
+    box-sizing: border-box;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 16px 22px;
+}
+
+.contact-import-template-link {
+    color: #0369A1;
+    font-size: 13px;
+    font-weight: 800;
+    margin-right: auto;
+    text-decoration: none;
+}
+
 .contact-master-detail {
     height: 100%;
     width: 100%;

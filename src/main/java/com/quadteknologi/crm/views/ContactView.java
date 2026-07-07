@@ -18,7 +18,9 @@ import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
+import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.html.Anchor;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -37,6 +39,8 @@ import com.vaadin.flow.component.tabs.Tabs;
 import com.vaadin.flow.component.textfield.EmailField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.component.upload.Upload;
+import com.vaadin.flow.component.upload.receivers.MemoryBuffer;
 import com.vaadin.flow.data.binder.Binder;
 import com.vaadin.flow.data.binder.ValidationException;
 import com.vaadin.flow.data.renderer.LitRenderer;
@@ -182,10 +186,38 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
 
         Div actions = new Div();
         actions.addClassName("pipeline-header-actions");
-        actions.add(createSearchField());
+        actions.add(createSearchField(), createImportUpload());
 
         header.add(titleGroup, actions);
         return header;
+    }
+
+    private Component createImportUpload() {
+        MemoryBuffer buffer = new MemoryBuffer();
+        Upload upload = new Upload(buffer);
+        upload.addClassName("contact-import-upload");
+        upload.setAcceptedFileTypes(".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        upload.setDropAllowed(false);
+        upload.setMaxFiles(1);
+
+        Button button = new Button("Import Excel", VaadinIcon.UPLOAD.create());
+        button.addClassName("pipeline-create-button");
+        upload.setUploadButton(button);
+
+        upload.addSucceededListener(event -> {
+            try {
+                ContactService.ContactImportPreview preview =
+                        contactService.previewContactImport(buffer.getInputStream());
+                openImportPreviewDialog(preview);
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
+            } finally {
+                upload.clearFileList();
+            }
+        });
+        upload.addFileRejectedListener(event -> showError(event.getErrorMessage()));
+        upload.addFailedListener(event -> showError("Import upload failed"));
+        return upload;
     }
 
     private TextField createSearchField() {
@@ -220,6 +252,111 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
             }
         });
         return tabs;
+    }
+
+    private void openImportPreviewDialog(ContactService.ContactImportPreview preview) {
+        Dialog dialog = new Dialog();
+        dialog.addClassName("contact-import-dialog");
+        dialog.setCloseOnEsc(true);
+        dialog.setCloseOnOutsideClick(false);
+
+        Div header = new Div();
+        header.addClassName("contact-import-header");
+        Div titleGroup = new Div();
+        H3 title = new H3("Preview Import Contact");
+        Paragraph subtitle = new Paragraph("Review rows before saving to contacts.");
+        titleGroup.add(title, subtitle);
+
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
+        close.addClassName("pipeline-detail-close");
+        close.getElement().setAttribute("aria-label", "Close import preview");
+        header.add(titleGroup, close);
+
+        Div summary = new Div();
+        summary.addClassName("contact-import-summary");
+        summary.add(importSummaryItem("New Organizations", preview.newOrganizations()));
+        summary.add(importSummaryItem("Existing Organizations", preview.existingOrganizations()));
+        summary.add(importSummaryItem("New Persons", preview.newPersons()));
+        summary.add(importSummaryItem("Errors", preview.errors()));
+
+        if (preview.rows().isEmpty()) {
+            Span empty = new Span("No import rows found. Fill data starting from row 3 in the template.");
+            empty.addClassName("contact-import-empty");
+            dialog.add(header, summary, empty, importDialogActions(dialog, preview));
+            dialog.open();
+            return;
+        }
+
+        Grid<ContactService.ContactImportRow> previewGrid = new Grid<>(ContactService.ContactImportRow.class, false);
+        previewGrid.addClassName("contact-import-grid");
+        previewGrid.setSizeFull();
+        previewGrid.addColumn(ContactService.ContactImportRow::rowNumber)
+                .setHeader("Row")
+                .setAutoWidth(true)
+                .setSortable(true);
+        previewGrid.addColumn(ContactService.ContactImportRow::organizationName)
+                .setHeader("Organization")
+                .setAutoWidth(true)
+                .setSortable(true);
+        previewGrid.addColumn(row -> row.country() + " / " + row.province() + " / " + row.city())
+                .setHeader("Location")
+                .setAutoWidth(true);
+        previewGrid.addColumn(ContactService.ContactImportRow::personName)
+                .setHeader("Person")
+                .setAutoWidth(true)
+                .setSortable(true);
+        previewGrid.addColumn(ContactService.ContactImportRow::personEmail)
+                .setHeader("Person Email")
+                .setAutoWidth(true);
+        previewGrid.addColumn(ContactService.ContactImportRow::status)
+                .setHeader("Status")
+                .setAutoWidth(true);
+        previewGrid.addColumn(ContactService.ContactImportRow::errorText)
+                .setHeader("Validation")
+                .setFlexGrow(2);
+        previewGrid.setItems(preview.rows());
+
+        dialog.add(header, summary, previewGrid, importDialogActions(dialog, preview));
+        dialog.open();
+    }
+
+    private Component importSummaryItem(String label, long value) {
+        Div item = new Div();
+        item.addClassName("contact-import-summary-item");
+        Span number = new Span(formatNumber(value));
+        number.addClassName("contact-import-summary-number");
+        Span text = new Span(label);
+        text.addClassName("contact-import-summary-label");
+        item.add(number, text);
+        return item;
+    }
+
+    private Component importDialogActions(Dialog dialog, ContactService.ContactImportPreview preview) {
+        Anchor template = new Anchor("/templates/template-import-data.xlsx", "Download Template");
+        template.addClassName("contact-import-template-link");
+        template.getElement().setAttribute("download", true);
+
+        Button save = new Button("Save Import", VaadinIcon.CHECK.create(), event -> {
+            try {
+                ContactService.ContactImportResult result = contactService.saveContactImport(preview);
+                reloadContactDataAndRefreshGrids();
+                dialog.close();
+                showSuccess("Imported " + formatNumber(result.createdOrganizations()) + " organizations and "
+                        + formatNumber(result.createdPersons()) + " persons");
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
+            }
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        save.setEnabled(preview.valid());
+
+        Button cancel = new Button("Cancel", event -> dialog.close());
+        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+
+        Div actions = new Div();
+        actions.addClassName("contact-import-actions");
+        actions.add(template, save, cancel);
+        return actions;
     }
 
     private void showTab(Component component) {
