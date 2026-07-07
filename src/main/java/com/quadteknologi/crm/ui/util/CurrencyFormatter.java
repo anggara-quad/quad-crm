@@ -21,4 +21,12 @@ public final class CurrencyFormatter {
         formatter.setMaximumFractionDigits(0);
         return formatter.format(value);
     }
+
+    public static String formatNumber(long value) {
+        return NumberFormat.getIntegerInstance(INDONESIA).format(value);
+    }
+
+    public static String formatRupiahOrZero(BigDecimal value) {
+        return formatRupiah(value == null ? BigDecimal.ZERO : value);
+    }
 }

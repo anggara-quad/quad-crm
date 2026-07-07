@@ -21,14 +21,17 @@ import com.vaadin.flow.component.contextmenu.ContextMenu;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.*;
 import com.vaadin.flow.component.icon.VaadinIcon;
-import com.vaadin.flow.component.notification.Notification;
-import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.router.RouterLink;
 import jakarta.annotation.security.PermitAll;
 
 import java.util.Optional;
+
+import static com.quadteknologi.crm.ui.util.UiNotifications.showError;
+import static com.quadteknologi.crm.ui.util.UiNotifications.showSuccess;
+import static com.quadteknologi.crm.util.TextUtils.initials;
+import static com.vaadin.flow.component.notification.Notification.Position.TOP_END;
 
 @PermitAll
 public class MainLayout extends AppLayout {
@@ -133,7 +136,7 @@ public class MainLayout extends AppLayout {
     private Component createAvatar(Optional<User> user) {
         Div avatar = new Div();
         avatar.addClassName("app-user-avatar");
-        avatar.setText(user.map(User::getFullName).map(this::initials).orElse("U"));
+        avatar.setText(user.map(User::getFullName).map(name -> initials(name, "U", 1)).orElse("U"));
         return avatar;
     }
 
@@ -201,15 +204,15 @@ public class MainLayout extends AppLayout {
 
         Button save = new Button("Save Password", event -> {
             if (!newPassword.getValue().equals(confirmPassword.getValue())) {
-                showError("Password confirmation does not match.");
+                showError("Password confirmation does not match.", TOP_END);
                 return;
             }
             try {
                 currentUserService.changePassword(currentPassword.getValue(), newPassword.getValue());
-                showSuccess("Password updated.");
+                showSuccess("Password updated.", TOP_END);
                 dialog.close();
             } catch (IllegalArgumentException exception) {
-                showError(exception.getMessage());
+                showError(exception.getMessage(), TOP_END);
             }
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
@@ -218,27 +221,6 @@ public class MainLayout extends AppLayout {
         content.add(header, currentPassword, newPassword, confirmPassword, actions);
         dialog.add(content);
         dialog.open();
-    }
-
-    private String initials(String value) {
-        if (value == null || value.isBlank()) {
-            return "U";
-        }
-        String[] parts = value.trim().split("\\s+");
-        if (parts.length == 1) {
-            return parts[0].substring(0, 1).toUpperCase();
-        }
-        return (parts[0].substring(0, 1) + parts[parts.length - 1].substring(0, 1)).toUpperCase();
-    }
-
-    private void showSuccess(String message) {
-        Notification notification = Notification.show(message, 2500, Notification.Position.TOP_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-    }
-
-    private void showError(String message) {
-        Notification notification = Notification.show(message, 3500, Notification.Position.TOP_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_ERROR);
     }
 
 }

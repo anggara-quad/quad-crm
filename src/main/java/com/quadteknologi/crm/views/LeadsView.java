@@ -17,7 +17,7 @@ import com.quadteknologi.crm.ui.component.ActivityTimeline;
 import com.quadteknologi.crm.ui.component.CurrencyField;
 import com.quadteknologi.crm.ui.component.KanbanBoard;
 import com.quadteknologi.crm.ui.layout.MainLayout;
-import com.vaadin.componentfactory.addons.inputmask.InputMask;
+import com.quadteknologi.crm.util.TextUtils;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
@@ -34,8 +34,6 @@ import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.masterdetaillayout.MasterDetailLayout;
-import com.vaadin.flow.component.notification.Notification;
-import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.EmailField;
@@ -60,13 +58,26 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 
 import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+import static com.quadteknologi.crm.ui.util.StyleUtils.normalizeColor;
+import static com.quadteknologi.crm.ui.util.UiComponents.dialogActions;
+import static com.quadteknologi.crm.ui.util.UiComponents.fieldActionRow;
+import static com.quadteknologi.crm.ui.util.UiComponents.phoneField;
+import static com.quadteknologi.crm.ui.util.UiComponents.quickCreateBody;
+import static com.quadteknologi.crm.ui.util.UiComponents.quickCreateDialog;
+import static com.quadteknologi.crm.ui.util.UiNotifications.showError;
+import static com.quadteknologi.crm.ui.util.UiNotifications.showSuccess;
+import static com.quadteknologi.crm.util.TextUtils.containsSearch;
+import static com.quadteknologi.crm.util.TextUtils.initials;
+import static com.quadteknologi.crm.util.TextUtils.normalizeSearch;
+import static com.quadteknologi.crm.util.TextUtils.sortText;
+import static com.quadteknologi.crm.util.TextUtils.valueOrDash;
+import static com.quadteknologi.crm.util.TextUtils.valueOrEmpty;
+import static com.quadteknologi.crm.util.TextUtils.valueOrFallback;
 
 @PermitAll
 @PageTitle("Leads | Quad CRM")
@@ -115,7 +126,7 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
         event.getLocation()
                 .getQueryParameters()
                 .getSingleParameter("lead")
-                .flatMap(this::parseUuid)
+                .flatMap(TextUtils::parseUuid)
                 .ifPresent(leadPublicId -> {
                     try {
                         Lead lead = leadService.findLead(leadPublicId);
@@ -650,16 +661,6 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
         return row;
     }
 
-    private HorizontalLayout fieldActionRow(Component field, Button action) {
-        HorizontalLayout row = new HorizontalLayout(field, action);
-        row.addClassName("pipeline-combo-action-row");
-        row.setPadding(false);
-        row.setSpacing(true);
-        row.setWidthFull();
-        row.setFlexGrow(1, field);
-        return row;
-    }
-
     private void openQuickCreateCompany(ComboBox<Company> companyField, List<Company> companies) {
         Company company = new Company();
         Binder<Company> binder = new Binder<>(Company.class);
@@ -670,7 +671,6 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
         TextField website = new TextField("Website");
         EmailField email = new EmailField("Email");
         TextField phone = phoneField("Phone");
-        new InputMask("+000000000000000").extend(phone);
         ComboBox<Country> country = new ComboBox<>("Country");
         ComboBox<Region> province = new ComboBox<>("Province");
         ComboBox<Region> city = new ComboBox<>("City / Regency");
@@ -859,42 +859,6 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
         dialog.open();
     }
 
-    private Dialog quickCreateDialog(String titleText) {
-        Dialog dialog = new Dialog();
-        dialog.addClassName("quick-create-dialog");
-        dialog.setCloseOnEsc(true);
-        dialog.setCloseOnOutsideClick(false);
-
-        Div header = new Div();
-        header.addClassName("quick-create-header");
-        H3 title = new H3(titleText);
-        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
-        close.addClassName("pipeline-detail-close");
-        close.getElement().setAttribute("aria-label", "Close " + titleText);
-        header.add(title, close);
-
-        dialog.add(header);
-        return dialog;
-    }
-
-    private Component quickCreateBody(Component... fields) {
-        Div body = new Div();
-        body.addClassName("quick-create-body");
-        body.add(fields);
-        return body;
-    }
-
-    private Component dialogActions(Button save, Dialog dialog) {
-        Button cancel = new Button("Cancel", event -> dialog.close());
-        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
-
-        HorizontalLayout actions = new HorizontalLayout(save, cancel);
-        actions.addClassNames("pipeline-form-actions", "quick-create-footer");
-        actions.setPadding(false);
-        actions.setSpacing(true);
-        return actions;
-    }
-
     private Div createLeadFormShell(String titleText, String subtitleText, boolean editing) {
         Div detail = new Div();
         detail.addClassName("pipeline-form-detail");
@@ -1037,14 +1001,6 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
                 || containsSearch(Optional.ofNullable(lead.getStatus()).map(OptionValue::getName).orElse(null), keyword)
                 || containsSearch(lead.getAssignedTo() == null ? null : lead.getAssignedTo().getFullName(), keyword)
                 || containsSearch(conversionLabel(lead), keyword);
-    }
-
-    private boolean containsSearch(String value, String keyword) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
-    }
-
-    private String normalizeSearch(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private KanbanBoard.CardData leadCardData(Lead lead) {
@@ -1347,49 +1303,12 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
                 .orElse(null);
     }
 
-    private String initials(String value) {
-        if (value == null || value.isBlank()) {
-            return "?";
-        }
-        String[] parts = value.trim().split("\\s+");
-        if (parts.length == 1) {
-            return parts[0].substring(0, Math.min(2, parts[0].length())).toUpperCase();
-        }
-        return (parts[0].substring(0, 1) + parts[parts.length - 1].substring(0, 1)).toUpperCase();
-    }
-
-    private String valueOrFallback(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private String valueOrDash(String value) {
-        return value == null || value.isBlank() ? "-" : value;
-    }
-
-    private String valueOrEmpty(String value) {
-        return value == null ? "" : value;
-    }
-
-    private String sortText(String value) {
-        return value == null ? "" : value.trim();
-    }
-
     private String formatAmountOrDash(BigDecimal amount) {
         return formatRupiah(amount);
     }
 
     private String productTypeName(OptionValue productType, String fallbackCode) {
         return productType == null ? valueOrDash(fallbackCode) : productType.getName();
-    }
-
-    private TextField phoneField(String label) {
-        TextField field = new TextField(label);
-        field.setClearButtonVisible(true);
-        field.setPlaceholder("+6281234567890");
-        new InputMask("+000000000000000").extend(field);
-        field.getElement().setAttribute("inputmode", "tel");
-        field.getElement().setAttribute("autocomplete", "tel");
-        return field;
     }
 
     private String conversionLabel(Lead lead) {
@@ -1403,25 +1322,4 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
         return "VALID".equals(lead.getStatusCode()) ? "Ready to convert" : "Not qualified yet";
     }
 
-    private String normalizeColor(String color) {
-        return color == null || color.isBlank() ? "default" : color.toLowerCase().replace('_', '-');
-    }
-
-    private Optional<UUID> parseUuid(String value) {
-        try {
-            return Optional.of(UUID.fromString(value));
-        } catch (IllegalArgumentException exception) {
-            return Optional.empty();
-        }
-    }
-
-    private void showSuccess(String message) {
-        Notification notification = Notification.show(message, 2500, Notification.Position.BOTTOM_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-    }
-
-    private void showError(String message) {
-        Notification notification = Notification.show(message, 3500, Notification.Position.BOTTOM_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_ERROR);
-    }
 }

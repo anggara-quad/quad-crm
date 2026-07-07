@@ -37,6 +37,9 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.quadteknologi.crm.util.TextUtils.trimToNull;
+import static com.quadteknologi.crm.util.TextUtils.valueOrFallback;
+
 @Service
 public class ContactService {
 
@@ -546,14 +549,6 @@ public class ContactService {
 
     private String normalizeKey(String value) {
         return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
-    }
-
-    private String valueOrFallback(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private String trimToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private Long visibleCreatedById() {

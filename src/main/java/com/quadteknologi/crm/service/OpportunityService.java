@@ -32,6 +32,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import static com.quadteknologi.crm.util.TextUtils.trimToNull;
+import static com.quadteknologi.crm.util.TextUtils.truncate;
+
 @Service
 @Transactional(readOnly = true)
 public class OpportunityService {
@@ -501,17 +504,6 @@ public class OpportunityService {
         metadata.put("createdFrom", "OpportunitiesView");
         activity.setMetadata(metadata);
         return activity;
-    }
-
-    private String trimToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private String truncate(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength);
     }
 
     public static class OpportunityRequest {

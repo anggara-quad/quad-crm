@@ -13,6 +13,8 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import static com.quadteknologi.crm.ui.util.StyleUtils.normalizeColor;
+
 public class KanbanBoard<T> extends MasterDetailLayout {
 
     private final String itemLabel;
@@ -178,10 +180,6 @@ public class KanbanBoard<T> extends MasterDetailLayout {
 
         empty.add(illustration, title, text, createButton);
         return empty;
-    }
-
-    private String normalizeColor(String color) {
-        return color == null || color.isBlank() ? "default" : color.toLowerCase().replace('_', '-');
     }
 
     public record CardData(

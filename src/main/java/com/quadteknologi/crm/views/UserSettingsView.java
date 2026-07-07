@@ -19,8 +19,6 @@ import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Header;
 import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.icon.VaadinIcon;
-import com.vaadin.flow.component.notification.Notification;
-import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.EmailField;
@@ -37,10 +35,13 @@ import jakarta.annotation.security.PermitAll;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static com.quadteknologi.crm.ui.util.UiNotifications.showError;
+import static com.quadteknologi.crm.ui.util.UiNotifications.showSuccess;
+import static com.quadteknologi.crm.util.TextUtils.containsSearch;
+import static com.quadteknologi.crm.util.TextUtils.normalizeSearch;
 
 @PermitAll
 @PageTitle("User Settings | Quad CRM")
@@ -129,14 +130,6 @@ public class UserSettingsView extends VerticalLayout implements BeforeEnterObser
                 || containsSearch(account.user().getEmail(), keyword)
                 || containsSearch(account.roleNames(), keyword)
                 || containsSearch(Boolean.TRUE.equals(account.user().getActive()) ? "active" : "inactive", keyword);
-    }
-
-    private boolean containsSearch(String value, String keyword) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
-    }
-
-    private String normalizeSearch(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private void configureGrid(Grid<UserSettingsService.UserAccount> grid) {
@@ -283,14 +276,4 @@ public class UserSettingsView extends VerticalLayout implements BeforeEnterObser
         return actions;
     }
 
-    private void showSuccess(String message) {
-        Notification notification = Notification.show(message, 2500, Notification.Position.BOTTOM_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-    }
-
-    private void showError(String message) {
-        Notification notification = Notification.show(Objects.toString(message, "Action failed"), 3500,
-                Notification.Position.BOTTOM_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_ERROR);
-    }
 }

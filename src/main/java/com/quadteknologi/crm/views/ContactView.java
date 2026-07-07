@@ -12,7 +12,6 @@ import com.quadteknologi.crm.service.CompanyContactSummaryDto;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.service.PersonContactSummaryDto;
 import com.quadteknologi.crm.ui.layout.MainLayout;
-import com.vaadin.componentfactory.addons.inputmask.InputMask;
 import com.vaadin.flow.component.ClientCallable;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
@@ -30,8 +29,6 @@ import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.masterdetaillayout.MasterDetailLayout;
-import com.vaadin.flow.component.notification.Notification;
-import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.tabs.Tab;
@@ -55,19 +52,27 @@ import jakarta.annotation.security.PermitAll;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
-import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatNumber;
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiahOrZero;
+import static com.quadteknologi.crm.ui.util.UiComponents.phoneField;
+import static com.quadteknologi.crm.ui.util.UiNotifications.showError;
+import static com.quadteknologi.crm.ui.util.UiNotifications.showSuccess;
+import static com.quadteknologi.crm.util.TextUtils.containsSearch;
+import static com.quadteknologi.crm.util.TextUtils.firstNonBlank;
+import static com.quadteknologi.crm.util.TextUtils.normalizeSearch;
+import static com.quadteknologi.crm.util.TextUtils.sortText;
+import static com.quadteknologi.crm.util.TextUtils.valueOrDash;
+import static com.quadteknologi.crm.util.TextUtils.valueOrFallback;
 
 @PermitAll
 @PageTitle("Contact | Quad CRM")
@@ -421,7 +426,7 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
                 .setSortable(true)
                 .setComparator(Comparator.comparingLong(person -> personSummary(person).opportunities()));
         personGrid.addColumn(personStackRenderer(
-                        person -> formatCurrency(personSummary(person).wonRevenue()),
+                        person -> formatRupiahOrZero(personSummary(person).wonRevenue()),
                         person -> "Won revenue"))
                 .setHeader("Won")
                 .setAutoWidth(true)
@@ -605,7 +610,7 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
                 .setSortable(true)
                 .setComparator(Comparator.comparingLong(company -> companySummary(company).opportunities()));
         organizationGrid.addColumn(companyStackRenderer(
-                        company -> formatCurrency(companySummary(company).wonRevenue()),
+                        company -> formatRupiahOrZero(companySummary(company).wonRevenue()),
                         company -> "Won revenue"))
                 .setHeader("Won")
                 .setAutoWidth(true)
@@ -997,7 +1002,8 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
                 createRelatedBody(
                         opportunity.getTitle(),
                         firstNonBlank(opportunityAccount(opportunity), "No account"),
-                        opportunityStageName(opportunity) + " | Amount " + formatCurrency(opportunity.getEstimatedAmount())),
+                        opportunityStageName(opportunity) + " | Amount "
+                                + formatRupiahOrZero(opportunity.getEstimatedAmount())),
                 createRelatedAside(formatDateTime(opportunity.getCreatedAt()), "Open opportunity"));
         return row;
     }
@@ -1072,16 +1078,6 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
         openPersonForm(person);
     }
 
-    private TextField phoneField(String label) {
-        TextField field = new TextField(label);
-        field.setClearButtonVisible(true);
-        field.setPlaceholder("+6281234567890");
-        field.getElement().setAttribute("inputmode", "tel");
-        field.getElement().setAttribute("autocomplete", "tel");
-        new InputMask("+000000000000000").extend(field);
-        return field;
-    }
-
     private Component actionBar(Button save, Button delete, Button cancel) {
         HorizontalLayout actions = new HorizontalLayout(save, delete, cancel);
         actions.addClassName("contact-form-actions");
@@ -1092,7 +1088,7 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
 
     private <T> Grid.Column<T> addSortableTextColumn(Grid<T> grid, ValueProvider<T, String> valueProvider,
             String header) {
-        return grid.addColumn(item -> displayText(valueProvider.apply(item)))
+        return grid.addColumn(item -> valueOrDash(valueProvider.apply(item)))
                 .setHeader(header)
                 .setAutoWidth(true)
                 .setSortable(true)
@@ -1422,15 +1418,6 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
         return user == null ? "-" : valueOrFallback(user.getFullName(), user.getEmail());
     }
 
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
-    }
-
     private Country findCountryById(List<Country> countries, Country country) {
         if (country == null || country.getId() == null) {
             return null;
@@ -1451,36 +1438,8 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
                 .orElse(null);
     }
 
-    private boolean containsSearch(String value, String keyword) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
-    }
-
-    private String displayText(String value) {
-        return value == null || value.isBlank() ? "-" : value;
-    }
-
-    private String valueOrFallback(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private String formatNumber(long value) {
-        return NumberFormat.getIntegerInstance(new Locale("id", "ID")).format(value);
-    }
-
-    private String formatCurrency(BigDecimal amount) {
-        return formatRupiah(amount == null ? BigDecimal.ZERO : amount);
-    }
-
     private String formatDateTime(LocalDateTime dateTime) {
         return dateTime == null ? "-" : dateTime.format(DATE_TIME_FORMAT);
-    }
-
-    private String sortText(String value) {
-        return value == null ? "" : value.trim();
-    }
-
-    private String normalizeSearch(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private void closePersonDetail() {
@@ -1493,13 +1452,4 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
         organizationLayout.setDetail(null);
     }
 
-    private void showSuccess(String message) {
-        Notification notification = Notification.show(message, 2500, Notification.Position.BOTTOM_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-    }
-
-    private void showError(String message) {
-        Notification notification = Notification.show(message, 3500, Notification.Position.BOTTOM_END);
-        notification.addThemeVariants(NotificationVariant.LUMO_ERROR);
-    }
 }

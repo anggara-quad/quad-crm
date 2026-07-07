@@ -33,6 +33,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import static com.quadteknologi.crm.util.TextUtils.trimToNull;
+import static com.quadteknologi.crm.util.TextUtils.truncate;
+
 @Service
 @Transactional(readOnly = true)
 public class LeadService {
@@ -556,20 +559,6 @@ public class LeadService {
         metadata.put("createdFrom", "LeadsView");
         activity.setMetadata(metadata);
         return activity;
-    }
-
-    private String trimToNull(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private String truncate(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength);
     }
 
     public static class CreateLeadRequest {

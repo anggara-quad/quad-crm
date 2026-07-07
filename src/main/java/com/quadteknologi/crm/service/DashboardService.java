@@ -29,6 +29,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.quadteknologi.crm.util.TextUtils.firstNonBlank;
+import static com.quadteknologi.crm.util.TextUtils.valueOrFallback;
+
 @Service
 @Transactional(readOnly = true)
 public class DashboardService {
@@ -663,15 +666,6 @@ public class DashboardService {
         return BigDecimal.ZERO;
     }
 
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return "";
-    }
-
     private String leadAccount(Lead lead) {
         return firstNonBlank(
                 lead.getCompany() == null ? null : lead.getCompany().getName(),
@@ -690,10 +684,6 @@ public class DashboardService {
 
     private String statusName(OptionValue status, String statusCode) {
         return status == null ? displayCode(statusCode) : status.getName();
-    }
-
-    private String valueOrFallback(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
     }
 
     private String normalizedSource(String source) {

@@ -12,6 +12,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
+import static com.quadteknologi.crm.ui.util.StyleUtils.normalizeColor;
+import static com.quadteknologi.crm.util.TextUtils.valueOrFallback;
+
 public class ActivityTimeline extends Div {
 
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
@@ -89,7 +92,7 @@ public class ActivityTimeline extends Div {
         return Optional.ofNullable(activity.getType())
                 .map(OptionValue::getColor)
                 .filter(this::hasText)
-                .map(value -> value.trim().toLowerCase().replace('_', '-'))
+                .map(value -> normalizeColor(value))
                 .orElse("default");
     }
 
@@ -106,10 +109,6 @@ public class ActivityTimeline extends Div {
 
     private String formatDate(LocalDateTime dateTime) {
         return dateTime.format(DATE_TIME_FORMAT);
-    }
-
-    private String valueOrFallback(String value, String fallback) {
-        return hasText(value) ? value : fallback;
     }
 
     private boolean hasText(String value) {

@@ -41,7 +41,6 @@ import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.PermitAll;
 
 import java.math.BigDecimal;
-import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -51,7 +50,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
-import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatNumber;
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiahOrZero;
 
 @PermitAll
 @PageTitle("Dashboard | Quad CRM")
@@ -225,10 +225,10 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
         metrics.add(new Metric("Contacts", summary.contacts(), "People created in selected period", "contact"));
         metrics.add(new Metric("Organizations", summary.organizations(), "Companies created in selected period", "contact"));
         metrics.add(new Metric("Open Pipeline", summary.openPipeline(),
-                summary.openOpportunities() + " active opportunities | Margin " + formatCurrency(summary.openMargin()),
+                summary.openOpportunities() + " active opportunities | Margin " + formatRupiahOrZero(summary.openMargin()),
                 "pipeline"));
         metrics.add(new Metric("Won Revenue", summary.wonRevenue(),
-                "Margin " + formatCurrency(summary.wonMargin()) + " | Won ratio " + summary.wonRatio() + "%",
+                "Margin " + formatRupiahOrZero(summary.wonMargin()) + " | Won ratio " + summary.wonRatio() + "%",
                 "opportunity"));
         metrics.add(new Metric("Total Margin", summary.wonMargin(), "Won opportunities", "opportunity"));
         metrics.add(new Metric("Forecasted Margin", summary.forecastedMargin(), "Opportunities not won", "pipeline"));
@@ -456,7 +456,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
                 strongCell(formatNumber(source.totalLeads()), "lead-source-cell"),
                 strongCell(formatNumber(source.validLeads()), "lead-source-cell"),
                 strongCell(source.validRate() + "%", "lead-source-cell"),
-                strongCell(formatCurrency(source.estimatedLeadValue()), "lead-source-cell", "lead-source-money-cell"),
+                strongCell(formatRupiahOrZero(source.estimatedLeadValue()), "lead-source-cell", "lead-source-money-cell"),
                 strongCell(formatNumber(source.convertedOpportunities()), "lead-source-cell"),
                 strongCell(source.conversionRate() + "%", "lead-source-cell"));
         return row;
@@ -544,8 +544,8 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
         title.addClassName("dashboard-list-title");
 
         String metaText = showSales
-                ? opportunity.account() + " - " + opportunity.salesName() + " - " + formatCurrency(opportunity.amount())
-                : opportunity.account() + " - " + formatCurrency(opportunity.amount());
+                ? opportunity.account() + " - " + opportunity.salesName() + " - " + formatRupiahOrZero(opportunity.amount())
+                : opportunity.account() + " - " + formatRupiahOrZero(opportunity.amount());
         Span meta = new Span(metaText);
         meta.addClassName("dashboard-list-meta");
         body.add(title, meta);
@@ -683,7 +683,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
 
     private String formatMetricValue(Metric metric) {
         if (metric.amount() != null) {
-            return formatCurrency(metric.amount());
+            return formatRupiahOrZero(metric.amount());
         }
         if (metric.percent()) {
             return metric.value() + "%";
@@ -710,14 +710,6 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
         return Optional.ofNullable(color)
                 .filter(value -> !value.isBlank())
                 .orElse("default");
-    }
-
-    private String formatNumber(long value) {
-        return NumberFormat.getIntegerInstance(new Locale("id", "ID")).format(value);
-    }
-
-    private String formatCurrency(BigDecimal amount) {
-        return formatRupiah(safeAmount(amount));
     }
 
     private String formatDate(LocalDate date) {

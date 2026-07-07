@@ -37,17 +37,17 @@ import com.vaadin.flow.router.QueryParameters;
 import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.PermitAll;
 
-import java.math.BigDecimal;
-import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 
-import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiah;
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatNumber;
+import static com.quadteknologi.crm.ui.util.CurrencyFormatter.formatRupiahOrZero;
+import static com.quadteknologi.crm.util.TextUtils.initials;
+import static com.quadteknologi.crm.util.TextUtils.valueOrFallback;
 
 @PermitAll
 @PageTitle("Dashboard Sales | Quad CRM")
@@ -203,7 +203,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
         metrics.add(new Metric("Contacts", summary.contacts(), "People created in selected period", "contact"));
         metrics.add(new Metric("Organizations", summary.organizations(), "Companies created in selected period", "contact"));
         metrics.add(new Metric("Open Pipeline", summary.openPipeline(),
-                summary.openOpportunities() + " active opportunities | Margin " + formatCurrency(summary.openMargin()),
+                summary.openOpportunities() + " active opportunities | Margin " + formatRupiahOrZero(summary.openMargin()),
                 "pipeline"));
         metrics.add(new Metric("Total Margin", summary.wonMargin(), "Won opportunities", "opportunity"));
         metrics.add(new Metric("Forecasted Margin", summary.forecastedMargin(), "Opportunities not won", "pipeline"));
@@ -280,7 +280,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
 
         Div person = new Div();
         person.addClassNames("manager-sales-cell", "manager-sales-person-cell");
-        Span avatar = new Span(initials(performance.salesName()));
+        Span avatar = new Span(initials(performance.salesName(), "S"));
         avatar.addClassName("manager-sales-avatar");
         Div identity = new Div();
         identity.addClassName("manager-sales-identity");
@@ -299,17 +299,17 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
                         performance,
                         DetailType.LEADS),
                 clickableMetricCell(
-                        formatCurrency(performance.openPipeline()),
+                        formatRupiahOrZero(performance.openPipeline()),
                         formatNumber(performance.openOpportunities()) + " open opps | Margin "
-                                + formatCurrency(performance.openMargin()),
+                                + formatRupiahOrZero(performance.openMargin()),
                         performance,
                         DetailType.OPPORTUNITIES),
                 metricCell(
-                        formatCurrency(performance.wonRevenue()),
+                        formatRupiahOrZero(performance.wonRevenue()),
                         "Closed win " + performance.closedWinRate() + "%"),
                 metricCell(
-                        formatCurrency(performance.wonMargin()),
-                        "Forecast " + formatCurrency(performance.forecastedMargin())),
+                        formatRupiahOrZero(performance.wonMargin()),
+                        "Forecast " + formatRupiahOrZero(performance.forecastedMargin())),
                 activityCell(performance));
         return row;
     }
@@ -433,9 +433,9 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
 
         Div money = new Div();
         money.addClassName("sales-breakdown-money");
-        Span amount = new Span(formatCurrency(opportunity.amount()));
+        Span amount = new Span(formatRupiahOrZero(opportunity.amount()));
         amount.addClassName("sales-breakdown-amount");
-        Span margin = new Span("Margin " + formatCurrency(opportunity.margin()));
+        Span margin = new Span("Margin " + formatRupiahOrZero(opportunity.margin()));
         margin.addClassName("sales-breakdown-meta");
         money.add(amount, margin);
 
@@ -538,7 +538,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
 
     private String formatMetricValue(Metric metric) {
         if (metric.amount() != null) {
-            return formatCurrency(metric.amount());
+            return formatRupiahOrZero(metric.amount());
         }
         if (metric.percent()) {
             return metric.value() + "%";
@@ -555,25 +555,6 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
         };
     }
 
-    private String initials(String value) {
-        if (value == null || value.isBlank()) {
-            return "S";
-        }
-        String[] parts = value.trim().split("\\s+");
-        if (parts.length == 1) {
-            return parts[0].substring(0, Math.min(2, parts[0].length())).toUpperCase(Locale.ROOT);
-        }
-        return (parts[0].substring(0, 1) + parts[parts.length - 1].substring(0, 1)).toUpperCase(Locale.ROOT);
-    }
-
-    private String formatNumber(long value) {
-        return NumberFormat.getIntegerInstance(new Locale("id", "ID")).format(value);
-    }
-
-    private String formatCurrency(BigDecimal amount) {
-        return formatRupiah(amount == null ? BigDecimal.ZERO : amount);
-    }
-
     private String formatDate(LocalDate date) {
         return date == null ? "-" : date.format(DATE_FORMAT);
     }
@@ -584,10 +565,6 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
 
     private String formatProbability(Integer probability) {
         return probability == null ? "-" : probability + "%";
-    }
-
-    private String valueOrFallback(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
     }
 
     private enum DetailType {

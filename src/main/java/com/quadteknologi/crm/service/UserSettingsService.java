@@ -20,6 +20,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.quadteknologi.crm.util.TextUtils.trimToNull;
+
 @Service
 public class UserSettingsService {
 
@@ -149,10 +151,6 @@ public class UserSettingsService {
                 .map(role -> new UserRole(user, role))
                 .toList();
         userRoleRepository.saveAll(nextRoles);
-    }
-
-    private String trimToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private Map<Long, Set<AppViewAccess>> findAccessByRoleId() {
