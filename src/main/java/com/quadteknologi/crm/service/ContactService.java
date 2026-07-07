@@ -199,58 +199,67 @@ public class ContactService {
     public ContactImportPreview previewContactImport(InputStream inputStream) {
         List<ContactImportRow> rows = readContactImportRows(inputStream);
         if (rows.isEmpty()) {
-            return new ContactImportPreview(List.of(), 0, 0, 0, 1);
+            return new ContactImportPreview(List.of(), 0, 0, 0, 0, 1);
         }
 
         ImportLookup lookup = buildImportLookup();
-        Map<String, ContactImportRow> firstOrganizationByKey = new LinkedHashMap<>();
         Set<String> importPersonKeys = new java.util.LinkedHashSet<>();
         List<ContactImportRow> validatedRows = new ArrayList<>();
 
         for (ContactImportRow row : rows) {
             List<String> errors = new ArrayList<>();
-            validateRequired(row, errors);
+            boolean skipped = false;
+            String skipReason = null;
+
+            String personKey = personImportKey(row);
+            if (personKey != null) {
+                if (lookup.personKeys().contains(personKey)) {
+                    skipped = true;
+                    skipReason = "Person already exists";
+                } else if (importPersonKeys.contains(personKey)) {
+                    skipped = true;
+                    skipReason = "Duplicate person in import file";
+                }
+            }
 
             String organizationKey = normalizeKey(row.organizationName());
             Company existingCompany = lookup.companiesByName().get(organizationKey);
-            ContactImportRow firstOrganization = firstOrganizationByKey.putIfAbsent(organizationKey, row);
-            if (firstOrganization != null && !sameOrganization(firstOrganization, row)) {
-                errors.add("Duplicate organization name has different organization data");
-            }
-
-            Country country = lookup.countriesByName().get(normalizeKey(row.country()));
             Region province = null;
             Region city = null;
-            if (country == null) {
-                errors.add("Country not found or inactive: " + valueOrFallback(row.country(), "-"));
-            } else {
-                province = lookup.provincesByCountryIdAndName().get(regionKey(country.getId(), row.province()));
-                if (province == null) {
-                    errors.add("Province not found under " + country.getName() + ": "
-                            + valueOrFallback(row.province(), "-"));
+            Country country = null;
+
+            if (!skipped) {
+                validateRequired(row, errors);
+
+                country = lookup.countriesByName().get(normalizeKey(row.country()));
+                if (country == null) {
+                    errors.add("Country not found or inactive: " + valueOrFallback(row.country(), "-"));
                 } else {
-                    city = lookup.citiesByProvinceIdAndName().get(regionKey(province.getId(), row.city()));
-                    if (city == null) {
-                        errors.add("City not found under " + province.getName() + ": "
-                                + valueOrFallback(row.city(), "-"));
+                    province = lookup.provincesByCountryIdAndName().get(regionKey(country.getId(), row.province()));
+                    if (province == null) {
+                        errors.add("Province not found under " + country.getName() + ": "
+                                + valueOrFallback(row.province(), "-"));
+                    } else {
+                        city = lookup.citiesByProvinceIdAndName().get(regionKey(province.getId(), row.city()));
+                        if (city == null) {
+                            errors.add("City not found under " + province.getName() + ": "
+                                    + valueOrFallback(row.city(), "-"));
+                        }
                     }
                 }
-            }
 
-            String personKey = personImportKey(row);
-            if (personKey == null) {
-                errors.add("Person name or email is required");
-            } else {
-                if (lookup.personKeys().contains(personKey)) {
-                    errors.add("Person already exists");
+                if (personKey == null) {
+                    errors.add("Person name or email is required");
                 }
-                if (!importPersonKeys.add(personKey)) {
-                    errors.add("Duplicate person in import file");
+                if (errors.isEmpty()) {
+                    importPersonKeys.add(personKey);
                 }
             }
 
             validatedRows.add(row.withValidation(
                     errors,
+                    skipped,
+                    skipReason,
                     existingCompany == null ? null : existingCompany.getId(),
                     country == null ? null : country.getId(),
                     province == null ? null : province.getId(),
@@ -258,19 +267,21 @@ public class ContactService {
         }
 
         long newOrganizations = validatedRows.stream()
-                .filter(row -> row.valid() && row.existingCompanyId() == null)
+                .filter(row -> row.importable() && row.existingCompanyId() == null)
                 .map(row -> normalizeKey(row.organizationName()))
                 .distinct()
                 .count();
         long existingOrganizations = validatedRows.stream()
-                .filter(row -> row.valid() && row.existingCompanyId() != null)
+                .filter(row -> row.importable() && row.existingCompanyId() != null)
                 .map(ContactImportRow::existingCompanyId)
                 .distinct()
                 .count();
-        long newPersons = validatedRows.stream().filter(ContactImportRow::valid).count();
+        long newPersons = validatedRows.stream().filter(ContactImportRow::importable).count();
+        long skippedPersons = validatedRows.stream().filter(ContactImportRow::skipped).count();
         long errors = validatedRows.stream().filter(row -> !row.valid()).count();
 
-        return new ContactImportPreview(validatedRows, newOrganizations, existingOrganizations, newPersons, errors);
+        return new ContactImportPreview(validatedRows, newOrganizations, existingOrganizations, newPersons,
+                skippedPersons, errors);
     }
 
     @Transactional
@@ -282,8 +293,14 @@ public class ContactService {
         Map<String, Company> importedCompanies = new LinkedHashMap<>();
         long createdCompanies = 0;
         long createdPersons = 0;
+        long skippedPersons = 0;
 
         for (ContactImportRow row : preview.rows()) {
+            if (row.skipped()) {
+                skippedPersons++;
+                continue;
+            }
+
             Company company;
             if (row.existingCompanyId() != null) {
                 company = companyRepository.findById(row.existingCompanyId()).orElseThrow();
@@ -318,7 +335,7 @@ public class ContactService {
             createdPersons++;
         }
 
-        return new ContactImportResult(createdCompanies, createdPersons);
+        return new ContactImportResult(createdCompanies, createdPersons, skippedPersons);
     }
 
     @Transactional
@@ -434,6 +451,8 @@ public class ContactService {
                         cell(row, 10, formatter),
                         cell(row, 11, formatter),
                         List.of(),
+                        false,
+                        null,
                         null,
                         null,
                         null,
@@ -510,16 +529,6 @@ public class ContactService {
 
         return new ImportLookup(countriesByName, provincesByCountryIdAndName, citiesByProvinceIdAndName,
                 companiesByName, personKeys);
-    }
-
-    private boolean sameOrganization(ContactImportRow left, ContactImportRow right) {
-        return Objects.equals(normalizeKey(left.industry()), normalizeKey(right.industry()))
-                && Objects.equals(normalizeKey(left.organizationEmail()), normalizeKey(right.organizationEmail()))
-                && Objects.equals(normalizeKey(left.organizationPhone()), normalizeKey(right.organizationPhone()))
-                && Objects.equals(normalizeKey(left.country()), normalizeKey(right.country()))
-                && Objects.equals(normalizeKey(left.province()), normalizeKey(right.province()))
-                && Objects.equals(normalizeKey(left.city()), normalizeKey(right.city()))
-                && Objects.equals(normalizeKey(left.address()), normalizeKey(right.address()));
     }
 
     private String personExistingKey(Person person) {
@@ -648,6 +657,7 @@ public class ContactService {
             long newOrganizations,
             long existingOrganizations,
             long newPersons,
+            long skippedPersons,
             long errors) {
 
         public boolean valid() {
@@ -670,6 +680,8 @@ public class ContactService {
             String personEmail,
             String personPhone,
             List<String> errors,
+            boolean skipped,
+            String skipReason,
             Long existingCompanyId,
             Long countryId,
             Long provinceId,
@@ -679,19 +691,31 @@ public class ContactService {
             return errors == null || errors.isEmpty();
         }
 
+        public boolean importable() {
+            return valid() && !skipped;
+        }
+
         public String status() {
             if (!valid()) {
                 return "Invalid";
+            }
+            if (skipped) {
+                return "Skipped - " + valueOrFallback(skipReason, "duplicate");
             }
             return existingCompanyId == null ? "Ready - new organization" : "Ready - existing organization";
         }
 
         public String errorText() {
+            if (skipped) {
+                return valueOrFallback(skipReason, "-");
+            }
             return valid() ? "-" : String.join("; ", errors);
         }
 
         ContactImportRow withValidation(
                 List<String> errors,
+                boolean skipped,
+                String skipReason,
                 Long existingCompanyId,
                 Long countryId,
                 Long provinceId,
@@ -711,6 +735,8 @@ public class ContactService {
                     personEmail,
                     personPhone,
                     List.copyOf(errors),
+                    skipped,
+                    skipReason,
                     existingCompanyId,
                     countryId,
                     provinceId,
@@ -718,6 +744,6 @@ public class ContactService {
         }
     }
 
-    public record ContactImportResult(long createdOrganizations, long createdPersons) {
+    public record ContactImportResult(long createdOrganizations, long createdPersons, long skippedPersons) {
     }
 }

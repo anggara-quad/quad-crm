@@ -37,9 +37,9 @@ import com.vaadin.flow.component.textfield.EmailField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.component.upload.Upload;
-import com.vaadin.flow.component.upload.receivers.MemoryBuffer;
 import com.vaadin.flow.data.binder.Binder;
 import com.vaadin.flow.data.binder.ValidationException;
+import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.data.renderer.LitRenderer;
 import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.function.ValueProvider;
@@ -48,9 +48,11 @@ import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.QueryParameters;
 import com.vaadin.flow.router.Route;
+import com.vaadin.flow.server.streams.UploadHandler;
 import jakarta.annotation.security.PermitAll;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -59,6 +61,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -191,15 +194,30 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
 
         Div actions = new Div();
         actions.addClassName("pipeline-header-actions");
-        actions.add(createSearchField(), createImportUpload());
+        actions.add(createSearchField(), createImportActions());
 
         header.add(titleGroup, actions);
         return header;
     }
 
+    private Component createImportActions() {
+        Div actions = new Div();
+        actions.addClassName("contact-import-header-actions");
+        actions.add(createImportUpload(), createTemplateDownloadLink());
+        return actions;
+    }
+
+    private Component createTemplateDownloadLink() {
+        Anchor template = new Anchor("/templates/template-import-data.xlsx", "Template");
+        template.addClassNames("pipeline-create-button", "contact-template-download-button");
+        template.getElement().setAttribute("download", true);
+        template.getElement().setAttribute("aria-label", "Download import template");
+        template.add(VaadinIcon.DOWNLOAD.create());
+        return template;
+    }
+
     private Component createImportUpload() {
-        MemoryBuffer buffer = new MemoryBuffer();
-        Upload upload = new Upload(buffer);
+        Upload upload = getUpload();
         upload.addClassName("contact-import-upload");
         upload.setAcceptedFileTypes(".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         upload.setDropAllowed(false);
@@ -209,19 +227,27 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
         button.addClassName("pipeline-create-button");
         upload.setUploadButton(button);
 
-        upload.addSucceededListener(event -> {
+        upload.addFileRejectedListener(event -> showError(event.getErrorMessage()));
+        return upload;
+    }
+
+    private Upload getUpload() {
+        AtomicReference<Upload> uploadRef = new AtomicReference<>();
+        Upload upload = new Upload(UploadHandler.inMemory((metadata, bytes) -> {
             try {
                 ContactService.ContactImportPreview preview =
-                        contactService.previewContactImport(buffer.getInputStream());
+                        contactService.previewContactImport(new ByteArrayInputStream(bytes));
                 openImportPreviewDialog(preview);
             } catch (IllegalArgumentException exception) {
                 showError(exception.getMessage());
             } finally {
-                upload.clearFileList();
+                Upload currentUpload = uploadRef.get();
+                if (currentUpload != null) {
+                    currentUpload.clearFileList();
+                }
             }
-        });
-        upload.addFileRejectedListener(event -> showError(event.getErrorMessage()));
-        upload.addFailedListener(event -> showError("Import upload failed"));
+        }));
+        uploadRef.set(upload);
         return upload;
     }
 
@@ -282,6 +308,7 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
         summary.add(importSummaryItem("New Organizations", preview.newOrganizations()));
         summary.add(importSummaryItem("Existing Organizations", preview.existingOrganizations()));
         summary.add(importSummaryItem("New Persons", preview.newPersons()));
+        summary.add(importSummaryItem("Skipped Persons", preview.skippedPersons()));
         summary.add(importSummaryItem("Errors", preview.errors()));
 
         if (preview.rows().isEmpty()) {
@@ -301,28 +328,45 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
                 .setSortable(true);
         previewGrid.addColumn(ContactService.ContactImportRow::organizationName)
                 .setHeader("Organization")
-                .setAutoWidth(true)
+                .setWidth("260px")
+                .setFlexGrow(1)
                 .setSortable(true);
-        previewGrid.addColumn(row -> row.country() + " / " + row.province() + " / " + row.city())
+        previewGrid.addColumn(new ComponentRenderer<>(this::createImportLocationCell))
                 .setHeader("Location")
-                .setAutoWidth(true);
+                .setWidth("220px")
+                .setFlexGrow(0);
         previewGrid.addColumn(ContactService.ContactImportRow::personName)
                 .setHeader("Person")
-                .setAutoWidth(true)
+                .setWidth("210px")
+                .setFlexGrow(0)
                 .setSortable(true);
         previewGrid.addColumn(ContactService.ContactImportRow::personEmail)
                 .setHeader("Person Email")
-                .setAutoWidth(true);
+                .setWidth("240px")
+                .setFlexGrow(0);
         previewGrid.addColumn(ContactService.ContactImportRow::status)
                 .setHeader("Status")
-                .setAutoWidth(true);
+                .setWidth("220px")
+                .setFlexGrow(0);
         previewGrid.addColumn(ContactService.ContactImportRow::errorText)
                 .setHeader("Validation")
-                .setFlexGrow(2);
+                .setWidth("260px")
+                .setFlexGrow(1);
         previewGrid.setItems(preview.rows());
 
-        dialog.add(header, summary, previewGrid, importDialogActions(dialog, preview));
+        Div gridWrap = new Div(previewGrid);
+        gridWrap.addClassName("contact-import-grid-wrap");
+        dialog.add(header, summary, gridWrap, importDialogActions(dialog, preview));
         dialog.open();
+    }
+
+    private Component createImportLocationCell(ContactService.ContactImportRow row) {
+        Div cell = new Div();
+        cell.addClassName("contact-import-location-cell");
+        cell.add(new Span(valueOrDash(row.country())));
+        cell.add(new Span(valueOrDash(row.province())));
+        cell.add(new Span(valueOrDash(row.city())));
+        return cell;
     }
 
     private Component importSummaryItem(String label, long value) {
@@ -337,17 +381,14 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private Component importDialogActions(Dialog dialog, ContactService.ContactImportPreview preview) {
-        Anchor template = new Anchor("/templates/template-import-data.xlsx", "Download Template");
-        template.addClassName("contact-import-template-link");
-        template.getElement().setAttribute("download", true);
-
         Button save = new Button("Save Import", VaadinIcon.CHECK.create(), event -> {
             try {
                 ContactService.ContactImportResult result = contactService.saveContactImport(preview);
                 reloadContactDataAndRefreshGrids();
                 dialog.close();
                 showSuccess("Imported " + formatNumber(result.createdOrganizations()) + " organizations and "
-                        + formatNumber(result.createdPersons()) + " persons");
+                        + formatNumber(result.createdPersons()) + " persons. Skipped "
+                        + formatNumber(result.skippedPersons()) + " duplicates.");
             } catch (IllegalArgumentException exception) {
                 showError(exception.getMessage());
             }
@@ -360,7 +401,7 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
 
         Div actions = new Div();
         actions.addClassName("contact-import-actions");
-        actions.add(template, save, cancel);
+        actions.add(save, cancel);
         return actions;
     }
 
@@ -433,15 +474,6 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
                 .setSortable(true)
                 .setComparator(Comparator.comparing(person -> personSummary(person).wonRevenue()));
         personGrid.addColumn(personStackRenderer(
-                        person -> createdByName(person.getCreatedBy()),
-                        person -> "Created by"))
-                .setHeader("Created By")
-                .setAutoWidth(true)
-                .setSortable(true)
-                .setComparator(Comparator.comparing(
-                        person -> createdByName(person.getCreatedBy()),
-                        String.CASE_INSENSITIVE_ORDER));
-        personGrid.addColumn(personStackRenderer(
                         person -> formatDateTime(personSummary(person).lastActivityAt()),
                         person -> "Last activity"))
                 .setHeader("Activity")
@@ -450,6 +482,16 @@ public class ContactView extends VerticalLayout implements BeforeEnterObserver {
                 .setComparator(Comparator.comparing(
                         person -> personSummary(person).lastActivityAt(),
                         Comparator.nullsLast(Comparator.naturalOrder())));
+        personGrid.addColumn(personStackRenderer(
+                        person -> createdByName(person.getCreatedBy()),
+                        person -> "Created by"))
+                .setHeader("Created By")
+                .setAutoWidth(true)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        person -> createdByName(person.getCreatedBy()),
+                        String.CASE_INSENSITIVE_ORDER));
+
         personGrid.asSingleSelect().addValueChangeListener(event -> {
             if (openingRelatedDetail) {
                 openingRelatedDetail = false;

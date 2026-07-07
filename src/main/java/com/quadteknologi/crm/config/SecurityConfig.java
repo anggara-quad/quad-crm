@@ -29,7 +29,8 @@ public class SecurityConfig {
                                 "/manifest.webmanifest",
                                 "/favicon.ico",
                                 "/favicon.svg",
-                                "/icons/**")
+                                "/icons/**",
+                                "/templates/**")
                         .permitAll())
                 .rememberMe(rememberMe -> rememberMe
                         .key("quad-crm-remember-me")
