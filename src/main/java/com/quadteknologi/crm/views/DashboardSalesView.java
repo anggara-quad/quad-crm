@@ -8,10 +8,12 @@ import com.quadteknologi.crm.service.DashboardScope;
 import com.quadteknologi.crm.service.DashboardService;
 import com.quadteknologi.crm.service.DashboardService.DashboardData;
 import com.quadteknologi.crm.service.DashboardService.Metric;
+import com.quadteknologi.crm.service.DashboardService.MetricType;
 import com.quadteknologi.crm.service.DashboardSummaryDto;
 import com.quadteknologi.crm.service.SalesLeadDetailDto;
 import com.quadteknologi.crm.service.SalesOpportunityDetailDto;
 import com.quadteknologi.crm.service.SalesPerformanceDto;
+import com.quadteknologi.crm.ui.component.DashboardMetricDialog;
 import com.quadteknologi.crm.ui.layout.MainLayout;
 import com.vaadin.flow.component.ClientCallable;
 import com.vaadin.flow.component.Component;
@@ -197,17 +199,19 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
     private List<Metric> createMetrics(DashboardData data) {
         DashboardSummaryDto summary = data.summary();
         List<Metric> metrics = new ArrayList<>();
-        metrics.add(new Metric("Active Sales", summary.activeSales(), "Visible sales users", "contact"));
-        metrics.add(new Metric("Leads", summary.leads(), "Created in selected period", "lead"));
-        metrics.add(new Metric("Valid Leads", summary.validLeads(), "Qualified lead count", "lead"));
-        metrics.add(new Metric("Contacts", summary.contacts(), "People created in selected period", "contact"));
-        metrics.add(new Metric("Organizations", summary.organizations(), "Companies created in selected period", "contact"));
-        metrics.add(new Metric("Open Pipeline", summary.openPipeline(),
+        metrics.add(new Metric(MetricType.ACTIVE_SALES, "Active Sales", summary.activeSales(), "Visible sales users", "contact"));
+        metrics.add(new Metric(MetricType.LEADS, "Leads", summary.leads(), "Created in selected period", "lead"));
+        metrics.add(new Metric(MetricType.VALID_LEADS, "Valid Leads", summary.validLeads(), "Qualified lead count", "lead"));
+        metrics.add(new Metric(MetricType.CONTACTS, "Contacts", summary.contacts(), "People created in selected period", "contact"));
+        metrics.add(new Metric(MetricType.ORGANIZATIONS, "Organizations", summary.organizations(),
+                "Companies created in selected period", "contact"));
+        metrics.add(new Metric(MetricType.OPEN_PIPELINE, "Open Pipeline", summary.openPipeline(),
                 summary.openOpportunities() + " active opportunities | Margin " + formatRupiahOrZero(summary.openMargin()),
                 "pipeline"));
-        metrics.add(new Metric("Total Margin", summary.wonMargin(), "Won opportunities", "opportunity"));
-        metrics.add(new Metric("Forecasted Margin", summary.forecastedMargin(), "Opportunities not won", "pipeline"));
-        metrics.add(new Metric("Closed Win Rate", summary.closedWinRate(), "Won / (Won + Lost)", "lead", true));
+        metrics.add(new Metric(MetricType.WON_MARGIN, "Total Margin", summary.wonMargin(), "Won opportunities", "opportunity"));
+        metrics.add(new Metric(MetricType.FORECASTED_MARGIN, "Forecasted Margin", summary.forecastedMargin(),
+                "Opportunities not won", "pipeline"));
+        metrics.add(new Metric(MetricType.CLOSED_WIN_RATE, "Closed Win Rate", summary.closedWinRate(), "Won / (Won + Lost)", "lead", true));
         return metrics;
     }
 
@@ -220,7 +224,14 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
 
     private Component createMetricCard(Metric metric) {
         Div card = new Div();
-        card.addClassNames("dashboard-card", "dashboard-metric-card", "dashboard-tone-" + metric.tone());
+        card.addClassNames("dashboard-card", "dashboard-metric-card", "dashboard-metric-card-action",
+                "dashboard-tone-" + metric.tone());
+        card.getElement().setAttribute("role", "button");
+        card.getElement().setAttribute("tabindex", "0");
+        card.getElement().setAttribute("aria-label", "Show " + metric.label() + " details");
+        card.addClickListener(event -> openMetricDetails(metric));
+        card.getElement().addEventListener("keydown", event -> openMetricDetails(metric))
+                .setFilter("event.key === 'Enter' || event.key === ' '");
 
         Div iconWrap = new Div(resolveMetricIcon(metric.tone()));
         iconWrap.addClassName("dashboard-metric-icon");
@@ -240,6 +251,10 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
         body.add(label, value, caption);
         card.add(iconWrap, body);
         return card;
+    }
+
+    private void openMetricDetails(Metric metric) {
+        new DashboardMetricDialog(metric, dashboardService.getMetricDetails(filter, metric.type())).open();
     }
 
     private Component createSalesPerformanceCard(List<SalesPerformanceDto> performance) {

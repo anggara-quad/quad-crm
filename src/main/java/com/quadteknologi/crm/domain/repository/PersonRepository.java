@@ -33,6 +33,14 @@ public interface PersonRepository extends JpaRepository<Person, Long> {
             LocalDateTime from, LocalDateTime to, Long createdById);
 
     @EntityGraph(attributePaths = {"company", "createdBy"})
+    List<Person> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+            LocalDateTime from, LocalDateTime to);
+
+    @EntityGraph(attributePaths = {"company", "createdBy"})
+    List<Person> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndCreatedByIdOrderByCreatedAtDesc(
+            LocalDateTime from, LocalDateTime to, Long createdById);
+
+    @EntityGraph(attributePaths = {"company", "createdBy"})
     List<Person> findByCompanyIdOrderByFullNameAsc(Long companyId);
 
     @EntityGraph(attributePaths = {"company", "createdBy"})

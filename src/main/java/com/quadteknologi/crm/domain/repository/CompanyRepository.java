@@ -32,6 +32,14 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndCreatedById(
             LocalDateTime from, LocalDateTime to, Long createdById);
 
+    @EntityGraph(attributePaths = {"country", "province", "city", "createdBy"})
+    List<Company> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+            LocalDateTime from, LocalDateTime to);
+
+    @EntityGraph(attributePaths = {"country", "province", "city", "createdBy"})
+    List<Company> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndCreatedByIdOrderByCreatedAtDesc(
+            LocalDateTime from, LocalDateTime to, Long createdById);
+
     @EntityGraph(attributePaths = {"country", "province", "city"})
     List<Company> findByNameContainingIgnoreCaseOrderByNameAsc(String name);
 

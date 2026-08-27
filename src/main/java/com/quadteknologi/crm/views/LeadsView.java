@@ -12,6 +12,7 @@ import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.security.AppViewAccess;
 import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.service.ContactService;
+import com.quadteknologi.crm.service.DataAccessService;
 import com.quadteknologi.crm.service.LeadService;
 import com.quadteknologi.crm.ui.component.ActivityTimeline;
 import com.quadteknologi.crm.ui.component.CurrencyField;
@@ -88,6 +89,7 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
 
     private final LeadService leadService;
     private final ContactService contactService;
+    private final DataAccessService dataAccessService;
     private final ViewAccessService viewAccessService;
     private KanbanBoard<Lead> kanbanBoard;
     private Component activeContent;
@@ -97,6 +99,7 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
     private boolean pipelineDataLoaded;
     private ViewMode viewMode = ViewMode.KANBAN;
     private String searchTerm = "";
+    private Long selectedSalesId;
 
     private enum ViewMode {
         KANBAN,
@@ -106,9 +109,11 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
     public LeadsView(
             LeadService leadService,
             ContactService contactService,
+            DataAccessService dataAccessService,
             ViewAccessService viewAccessService) {
         this.leadService = leadService;
         this.contactService = contactService;
+        this.dataAccessService = dataAccessService;
         this.viewAccessService = viewAccessService;
 
         addClassName("page-view");
@@ -154,10 +159,29 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
 
         Div actions = new Div();
         actions.addClassName("pipeline-header-actions");
-        actions.add(createViewToggle(), createSearchField("Search leads"), createLeadButton);
+        actions.add(createViewToggle());
+        if (dataAccessService.canAccessTeamData()) {
+            actions.add(createSalesFilter());
+        }
+        actions.add(createSearchField("Search leads"), createLeadButton);
 
         header.add(titleGroup, actions);
         return header;
+    }
+
+    private ComboBox<User> createSalesFilter() {
+        ComboBox<User> sales = new ComboBox<>();
+        sales.addClassName("pipeline-sales-filter");
+        sales.setItems(dataAccessService.findActiveSalesUsersForTeamFilter());
+        sales.setItemLabelGenerator(User::getFullName);
+        sales.setPlaceholder("All Sales");
+        sales.setClearButtonVisible(true);
+        sales.getElement().setAttribute("aria-label", "Sales");
+        sales.addValueChangeListener(event -> {
+            selectedSalesId = event.getValue() == null ? null : event.getValue().getId();
+            refreshKanbanBoard();
+        });
+        return sales;
     }
 
     private TextField createSearchField(String placeholder) {
@@ -223,7 +247,7 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
     private Component createKanbanBoard() {
         ensurePipelineDataLoaded();
         List<OptionValue> statuses = pipelineStatuses;
-        Map<String, List<Lead>> leadsByStatus = filterLeadsBySearch(pipelineLeadsByStatus);
+        Map<String, List<Lead>> leadsByStatus = filterLeads(pipelineLeadsByStatus);
 
         kanbanBoard = new KanbanBoard<>(
                 "lead",
@@ -945,7 +969,7 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
 
     private List<Lead> currentLeads() {
         ensurePipelineDataLoaded();
-        Map<String, List<Lead>> leadsByStatus = filterLeadsBySearch(pipelineLeadsByStatus);
+        Map<String, List<Lead>> leadsByStatus = filterLeads(pipelineLeadsByStatus);
         return pipelineStatuses
                 .stream()
                 .flatMap(status -> leadsByStatus.getOrDefault(status.getCode(), List.of()).stream())
@@ -976,18 +1000,25 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
         }
     }
 
-    private Map<String, List<Lead>> filterLeadsBySearch(Map<String, List<Lead>> leadsByStatus) {
+    private Map<String, List<Lead>> filterLeads(Map<String, List<Lead>> leadsByStatus) {
         String keyword = normalizeSearch(searchTerm);
-        if (keyword.isBlank()) {
+        if (keyword.isBlank() && selectedSalesId == null) {
             return leadsByStatus;
         }
 
         Map<String, List<Lead>> filtered = new LinkedHashMap<>();
         leadsByStatus.forEach((status, leads) -> filtered.put(status,
                 leads.stream()
-                        .filter(lead -> matchesSearch(lead, keyword))
+                        .filter(this::matchesSalesFilter)
+                        .filter(lead -> keyword.isBlank() || matchesSearch(lead, keyword))
                         .toList()));
         return filtered;
+    }
+
+    private boolean matchesSalesFilter(Lead lead) {
+        return selectedSalesId == null
+                || (lead.getAssignedTo() != null
+                && Objects.equals(lead.getAssignedTo().getId(), selectedSalesId));
     }
 
     private boolean matchesSearch(Lead lead, String keyword) {

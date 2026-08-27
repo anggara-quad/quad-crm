@@ -6,6 +6,7 @@ import com.quadteknologi.crm.security.CurrentUserService;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -23,6 +24,17 @@ public class DataAccessService {
         return currentUserService.hasRole("Sales")
                 && !currentUserService.hasRole("Manager")
                 && !currentUserService.hasRole("Administrator");
+    }
+
+    public boolean canAccessTeamData() {
+        return currentUserService.hasRole("MANAGER") || currentUserService.hasRole("ADMIN");
+    }
+
+    public List<User> findActiveSalesUsersForTeamFilter() {
+        if (!canAccessTeamData()) {
+            return List.of();
+        }
+        return userRepository.findActiveSalesUsersOrderByFullNameAsc();
     }
 
     public Optional<User> getCurrentUserReference() {

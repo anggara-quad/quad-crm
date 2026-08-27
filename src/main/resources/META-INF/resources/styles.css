@@ -389,6 +389,11 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
     --vaadin-input-field-height: 36px;
 }
 
+.pipeline-sales-filter {
+    width: 180px;
+    --vaadin-input-field-height: 36px;
+}
+
 .pipeline-search-field vaadin-icon {
     --vaadin-icon-size: 16px;
     color: #667085;
@@ -1962,6 +1967,197 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
     padding: 16px;
 }
 
+.dashboard-metric-card-action {
+    cursor: pointer;
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.dashboard-metric-card-action:hover {
+    border-color: #98A2B3;
+    box-shadow: 0 8px 18px rgba(16, 24, 40, 0.08);
+    transform: translateY(-1px);
+}
+
+.dashboard-metric-card-action:focus-visible {
+    border-color: #009689;
+    box-shadow: 0 0 0 3px rgba(0, 150, 137, 0.18);
+    outline: none;
+}
+
+.dashboard-metric-dialog {
+    max-width: calc(100vw - 32px);
+    width: 980px;
+}
+
+.dashboard-metric-dialog::part(content) {
+    overflow: hidden;
+    padding: 0;
+}
+
+.dashboard-metric-dialog-shell {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 64px);
+    min-height: 260px;
+}
+
+.dashboard-metric-dialog-header {
+    align-items: flex-start;
+    border-bottom: 1px solid #E4E7EC;
+    display: flex;
+    flex: 0 0 auto;
+    gap: 16px;
+    justify-content: space-between;
+    padding: 20px 22px 16px;
+}
+
+.dashboard-metric-dialog-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dashboard-metric-dialog-title-group h3 {
+    color: #101828;
+    font-size: 19px;
+    line-height: 1.25;
+    margin: 0;
+}
+
+.dashboard-metric-dialog-title-group span {
+    color: #667085;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.dashboard-metric-dialog-close {
+    flex: 0 0 auto;
+}
+
+.dashboard-metric-dialog-content {
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 4px 22px 18px;
+}
+
+.dashboard-metric-dialog-empty {
+    color: #667085;
+    display: block;
+    font-size: 13px;
+    padding: 40px 0;
+    text-align: center;
+}
+
+.dashboard-metric-detail-row {
+    align-items: center;
+    border-bottom: 1px solid #EEF2F6;
+    display: flex;
+    gap: 16px;
+    min-width: 0;
+    padding: 14px 0;
+}
+
+.dashboard-metric-detail-row-clickable {
+    border-radius: 8px;
+    cursor: pointer;
+    margin: 0 -8px;
+    padding: 14px 8px;
+    transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.dashboard-metric-detail-row-clickable:hover {
+    background: #F8FAFC;
+}
+
+.dashboard-metric-detail-row-clickable:focus-visible {
+    box-shadow: 0 0 0 3px rgba(0, 150, 137, 0.18);
+    outline: none;
+}
+
+.dashboard-metric-detail-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.dashboard-metric-detail-title {
+    color: #273142;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-metric-detail-meta {
+    color: #667085;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.dashboard-metric-detail-aside {
+    align-items: flex-end;
+    display: flex;
+    flex: 0 0 190px;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.dashboard-metric-detail-aside:empty {
+    display: none;
+}
+
+.dashboard-metric-detail-amount {
+    color: #273142;
+    font-size: 14px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+    text-align: right;
+}
+
+.dashboard-metric-detail-badge {
+    border-radius: 999px;
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 6px 8px;
+}
+
+.dashboard-metric-detail-badge-success {
+    background: #ECFDF3;
+    color: #027A48;
+}
+
+.dashboard-metric-detail-badge-error {
+    background: #FEF3F2;
+    color: #B42318;
+}
+
+.dashboard-metric-detail-badge-primary {
+    background: #E0F2FE;
+    color: #0369A1;
+}
+
+.dashboard-metric-detail-badge-muted {
+    background: #F2F4F7;
+    color: #475467;
+}
+
+.dashboard-metric-detail-open {
+    --vaadin-icon-size: 16px;
+    color: #667085;
+    flex: 0 0 auto;
+}
+
 .dashboard-metric-icon {
     align-items: center;
     border-radius: 8px;
@@ -2686,6 +2882,48 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
 }
 
 @media (max-width: 700px) {
+    .dashboard-metric-dialog {
+        height: calc(100vh - 24px);
+        max-width: calc(100vw - 24px);
+        width: calc(100vw - 24px);
+    }
+
+    .dashboard-metric-dialog-shell {
+        max-height: none;
+    }
+
+    .dashboard-metric-dialog-header {
+        padding: 16px;
+    }
+
+    .dashboard-metric-dialog-content {
+        padding: 4px 16px 16px;
+    }
+
+    .dashboard-metric-detail-row {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+    }
+
+    .dashboard-metric-detail-body {
+        flex-basis: calc(100% - 88px);
+    }
+
+    .dashboard-metric-detail-title,
+    .dashboard-metric-detail-meta {
+        white-space: normal;
+    }
+
+    .dashboard-metric-detail-aside {
+        align-items: flex-start;
+        flex: 1 1 100%;
+    }
+
+    .dashboard-metric-detail-amount {
+        text-align: left;
+    }
+
     .pipeline-header {
         align-items: stretch;
         flex-direction: column;
@@ -2725,7 +2963,8 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
         width: 100%;
     }
 
-    .pipeline-search-field {
+    .pipeline-search-field,
+    .pipeline-sales-filter {
         width: 100%;
     }
 

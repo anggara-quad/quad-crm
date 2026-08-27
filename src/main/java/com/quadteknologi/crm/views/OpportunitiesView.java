@@ -12,6 +12,7 @@ import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.security.AppViewAccess;
 import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.service.ContactService;
+import com.quadteknologi.crm.service.DataAccessService;
 import com.quadteknologi.crm.service.OpportunityService;
 import com.quadteknologi.crm.ui.component.ActivityTimeline;
 import com.quadteknologi.crm.ui.component.CurrencyField;
@@ -87,6 +88,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
     private final OpportunityService opportunityService;
     private final ContactService contactService;
+    private final DataAccessService dataAccessService;
     private final ViewAccessService viewAccessService;
     private KanbanBoard<Opportunity> kanbanBoard;
     private Component activeContent;
@@ -96,6 +98,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     private boolean pipelineDataLoaded;
     private ViewMode viewMode = ViewMode.KANBAN;
     private String searchTerm = "";
+    private Long selectedSalesId;
 
     private enum ViewMode {
         KANBAN,
@@ -105,9 +108,11 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     public OpportunitiesView(
             OpportunityService opportunityService,
             ContactService contactService,
+            DataAccessService dataAccessService,
             ViewAccessService viewAccessService) {
         this.opportunityService = opportunityService;
         this.contactService = contactService;
+        this.dataAccessService = dataAccessService;
         this.viewAccessService = viewAccessService;
 
         addClassName("page-view");
@@ -157,10 +162,29 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
         Div actions = new Div();
         actions.addClassName("pipeline-header-actions");
-        actions.add(createViewToggle(), createSearchField("Search opportunities"), createOpportunityButton);
+        actions.add(createViewToggle());
+        if (dataAccessService.canAccessTeamData()) {
+            actions.add(createSalesFilter());
+        }
+        actions.add(createSearchField("Search opportunities"), createOpportunityButton);
 
         header.add(titleGroup, actions);
         return header;
+    }
+
+    private ComboBox<User> createSalesFilter() {
+        ComboBox<User> sales = new ComboBox<>();
+        sales.addClassName("pipeline-sales-filter");
+        sales.setItems(dataAccessService.findActiveSalesUsersForTeamFilter());
+        sales.setItemLabelGenerator(User::getFullName);
+        sales.setPlaceholder("All Sales");
+        sales.setClearButtonVisible(true);
+        sales.getElement().setAttribute("aria-label", "Sales");
+        sales.addValueChangeListener(event -> {
+            selectedSalesId = event.getValue() == null ? null : event.getValue().getId();
+            refreshKanbanBoard();
+        });
+        return sales;
     }
 
     private TextField createSearchField(String placeholder) {
@@ -227,7 +251,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         ensurePipelineDataLoaded();
         List<OptionValue> statuses = pipelineStatuses;
         Map<String, List<Opportunity>> opportunitiesByStatus =
-                filterOpportunitiesBySearch(pipelineOpportunitiesByStatus);
+                filterOpportunities(pipelineOpportunitiesByStatus);
 
         kanbanBoard = new KanbanBoard<>(
                 "opportunity",
@@ -1079,7 +1103,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     private List<Opportunity> currentOpportunities() {
         ensurePipelineDataLoaded();
         Map<String, List<Opportunity>> opportunitiesByStatus =
-                filterOpportunitiesBySearch(pipelineOpportunitiesByStatus);
+                filterOpportunities(pipelineOpportunitiesByStatus);
         return pipelineStatuses
                 .stream()
                 .flatMap(status -> opportunitiesByStatus.getOrDefault(status.getCode(), List.of()).stream())
@@ -1110,19 +1134,26 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         }
     }
 
-    private Map<String, List<Opportunity>> filterOpportunitiesBySearch(
+    private Map<String, List<Opportunity>> filterOpportunities(
             Map<String, List<Opportunity>> opportunitiesByStatus) {
         String keyword = normalizeSearch(searchTerm);
-        if (keyword.isBlank()) {
+        if (keyword.isBlank() && selectedSalesId == null) {
             return opportunitiesByStatus;
         }
 
         Map<String, List<Opportunity>> filtered = new LinkedHashMap<>();
         opportunitiesByStatus.forEach((status, opportunities) -> filtered.put(status,
                 opportunities.stream()
-                        .filter(opportunity -> matchesSearch(opportunity, keyword))
+                        .filter(this::matchesSalesFilter)
+                        .filter(opportunity -> keyword.isBlank() || matchesSearch(opportunity, keyword))
                         .toList()));
         return filtered;
+    }
+
+    private boolean matchesSalesFilter(Opportunity opportunity) {
+        return selectedSalesId == null
+                || (opportunity.getAssignedTo() != null
+                && Objects.equals(opportunity.getAssignedTo().getId(), selectedSalesId));
     }
 
     private boolean matchesSearch(Opportunity opportunity, String keyword) {

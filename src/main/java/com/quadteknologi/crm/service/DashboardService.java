@@ -1,9 +1,11 @@
 package com.quadteknologi.crm.service;
 
 import com.quadteknologi.crm.domain.entity.Activity;
+import com.quadteknologi.crm.domain.entity.Company;
 import com.quadteknologi.crm.domain.entity.Lead;
 import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.OptionValue;
+import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.domain.repository.ActivityRepository;
 import com.quadteknologi.crm.domain.repository.LeadRepository;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,6 +29,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -40,6 +44,8 @@ public class DashboardService {
     private static final String OPPORTUNITY_STATUS_GROUP = "OPPORTUNITY_STATUS";
     private static final String VALID_LEAD_STATUS = "VALID";
     private static final int CLOSING_SOON_DAYS = 30;
+    private static final DateTimeFormatter DETAIL_DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
+    private static final DateTimeFormatter DETAIL_DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
 
     private final LeadRepository leadRepository;
     private final OpportunityRepository opportunityRepository;
@@ -71,6 +77,56 @@ public class DashboardService {
 
     public DashboardData getDashboardData(DashboardFilter requestedFilter) {
         return getDashboardData(requestedFilter, null, false, false);
+    }
+
+    public MetricDetails getMetricDetails(DashboardFilter requestedFilter, MetricType type) {
+        DashboardFilter filter = resolveFilter(requestedFilter);
+        LocalDateTime from = filter.startDate().atStartOfDay();
+        LocalDateTime to = filter.endDate().plusDays(1).atStartOfDay();
+
+        List<MetricDetailRow> rows = switch (type) {
+            case LEADS -> findMetricLeads(filter, from, to).stream()
+                    .map(this::mapMetricLead)
+                    .toList();
+            case VALID_LEADS -> findMetricLeads(filter, from, to).stream()
+                    .filter(lead -> VALID_LEAD_STATUS.equals(lead.getStatusCode()))
+                    .map(this::mapMetricLead)
+                    .toList();
+            case CONTACTS -> contactService.findDashboardPersons(from, to, filter.salesId()).stream()
+                    .map(this::mapMetricContact)
+                    .toList();
+            case ORGANIZATIONS -> contactService.findDashboardCompanies(from, to, filter.salesId()).stream()
+                    .map(this::mapMetricOrganization)
+                    .toList();
+            case OPEN_PIPELINE -> findMetricOpportunities(filter, from, to).stream()
+                    .filter(this::isOpenOpportunity)
+                    .map(this::mapMetricOpportunity)
+                    .toList();
+            case WON_REVENUE, WON_MARGIN -> findMetricOpportunities(filter, from, to).stream()
+                    .filter(this::isWonOpportunity)
+                    .map(this::mapMetricOpportunity)
+                    .toList();
+            case FORECASTED_MARGIN -> findMetricOpportunities(filter, from, to).stream()
+                    .filter(opportunity -> !isWonOpportunity(opportunity))
+                    .map(this::mapMetricOpportunity)
+                    .toList();
+            case CLOSING_SOON -> opportunityRepository.findDashboardClosingSoon(
+                            OPPORTUNITY_STATUS_GROUP,
+                            LocalDate.now(),
+                            LocalDate.now().plusDays(CLOSING_SOON_DAYS),
+                            filter.salesId()).stream()
+                    .filter(opportunity -> matchesOpportunityFilters(opportunity, filter))
+                    .map(this::mapMetricOpportunity)
+                    .toList();
+            case CLOSED_WIN_RATE -> findMetricOpportunities(filter, from, to).stream()
+                    .filter(opportunity -> isWonOpportunity(opportunity) || isLostOpportunity(opportunity))
+                    .map(this::mapMetricOpportunity)
+                    .toList();
+            case ACTIVE_SALES -> activeSalesUsers(filter).stream()
+                    .map(this::mapMetricSalesUser)
+                    .toList();
+        };
+        return new MetricDetails(filter, rows);
     }
 
     public DashboardData getDashboardData(
@@ -238,10 +294,128 @@ public class DashboardService {
 
     private List<Opportunity> applyOpportunityFilters(List<Opportunity> opportunities, DashboardFilter filter) {
         return opportunities.stream()
-                .filter(opportunity -> matchesOpportunityStatus(opportunity, filter.opportunityStatusCode()))
-                .filter(opportunity -> matchesRelatedLeadStatus(opportunity, filter.leadStatusCode()))
-                .filter(opportunity -> matchesRelatedLeadSource(opportunity, filter.leadSource()))
+                .filter(opportunity -> matchesOpportunityFilters(opportunity, filter))
                 .toList();
+    }
+
+    private List<Lead> findMetricLeads(
+            DashboardFilter filter,
+            LocalDateTime from,
+            LocalDateTime to) {
+        List<Lead> leads = leadRepository.findDashboardLeads(
+                LEAD_STATUS_GROUP, from, to, filter.salesId());
+        List<Opportunity> opportunities = filter.opportunityStatusCode() == null
+                ? List.of()
+                : opportunityRepository.findDashboardOpportunities(
+                        OPPORTUNITY_STATUS_GROUP, from, to, filter.salesId());
+        return applyLeadFilters(leads, opportunities, filter);
+    }
+
+    private List<Opportunity> findMetricOpportunities(
+            DashboardFilter filter,
+            LocalDateTime from,
+            LocalDateTime to) {
+        return applyOpportunityFilters(
+                opportunityRepository.findDashboardOpportunities(
+                        OPPORTUNITY_STATUS_GROUP, from, to, filter.salesId()),
+                filter);
+    }
+
+    private boolean matchesOpportunityFilters(Opportunity opportunity, DashboardFilter filter) {
+        return matchesOpportunityStatus(opportunity, filter.opportunityStatusCode())
+                && matchesRelatedLeadStatus(opportunity, filter.leadStatusCode())
+                && matchesRelatedLeadSource(opportunity, filter.leadSource());
+    }
+
+    private List<User> activeSalesUsers(DashboardFilter filter) {
+        if (!canUseTeamDashboard()) {
+            return List.of();
+        }
+        return userRepository.findActiveSalesUsersOrderByFullNameAsc().stream()
+                .filter(user -> filter.salesId() == null || Objects.equals(user.getId(), filter.salesId()))
+                .toList();
+    }
+
+    private MetricDetailRow mapMetricLead(Lead lead) {
+        return new MetricDetailRow(
+                lead.getPublicId(),
+                "LEAD",
+                valueOrFallback(lead.getTitle(), "Untitled lead"),
+                leadAccount(lead) + " | " + statusName(lead.getStatus(), lead.getStatusCode())
+                        + " | " + normalizedSource(lead.getSource()),
+                "Assigned to " + assignedToName(lead.getAssignedTo())
+                        + " | Created " + formatDetailDateTime(lead.getCreatedAt()),
+                null,
+                null,
+                VALID_LEAD_STATUS.equals(lead.getStatusCode()) ? "Valid" : "Lead",
+                VALID_LEAD_STATUS.equals(lead.getStatusCode()) ? "success" : "muted");
+    }
+
+    private MetricDetailRow mapMetricOpportunity(Opportunity opportunity) {
+        String state = isWonOpportunity(opportunity) ? "Won" : isLostOpportunity(opportunity) ? "Lost" : "Open";
+        String tone = isWonOpportunity(opportunity) ? "success" : isLostOpportunity(opportunity) ? "error" : "primary";
+        return new MetricDetailRow(
+                opportunity.getPublicId(),
+                "OPPORTUNITY",
+                valueOrFallback(opportunity.getTitle(), "Untitled opportunity"),
+                opportunityAccount(opportunity) + " | "
+                        + statusName(opportunity.getStatus(), opportunity.getStatusCode()) + " | "
+                        + valueOrFallback(opportunity.getLead() == null ? null : opportunity.getLead().getTitle(),
+                                "Direct opportunity"),
+                "Assigned to " + assignedToName(opportunity.getAssignedTo())
+                        + " | Expected close " + formatDetailDate(opportunity.getExpectedCloseDate())
+                        + " | Probability " + formatProbability(opportunity.getProbability()),
+                safeAmount(opportunity.getEstimatedAmount()),
+                safeAmount(opportunity.getMargin()),
+                state,
+                tone);
+    }
+
+    private MetricDetailRow mapMetricContact(Person person) {
+        return new MetricDetailRow(
+                person.getPublicId(),
+                null,
+                valueOrFallback(person.getFullName(), "Unnamed contact"),
+                valueOrFallback(person.getJobTitle(), "No job title") + " | "
+                        + valueOrFallback(person.getCompany() == null ? null : person.getCompany().getName(),
+                                "No organization"),
+                "Email " + valueOrFallback(person.getEmail(), "-")
+                        + " | Phone " + valueOrFallback(person.getPhone(), "-")
+                        + " | Created by " + createdByName(person.getCreatedBy())
+                        + " on " + formatDetailDateTime(person.getCreatedAt()),
+                null,
+                null,
+                "Contact",
+                "muted");
+    }
+
+    private MetricDetailRow mapMetricOrganization(Company company) {
+        return new MetricDetailRow(
+                company.getPublicId(),
+                null,
+                valueOrFallback(company.getName(), "Unnamed organization"),
+                valueOrFallback(company.getIndustry(), "No industry") + " | " + companyLocation(company),
+                "Email " + valueOrFallback(company.getEmail(), "-")
+                        + " | Phone " + valueOrFallback(company.getPhone(), "-")
+                        + " | Created by " + createdByName(company.getCreatedBy())
+                        + " on " + formatDetailDateTime(company.getCreatedAt()),
+                null,
+                null,
+                "Organization",
+                "muted");
+    }
+
+    private MetricDetailRow mapMetricSalesUser(User user) {
+        return new MetricDetailRow(
+                user.getPublicId(),
+                null,
+                valueOrFallback(user.getFullName(), "Unnamed sales user"),
+                valueOrFallback(user.getEmail(), "No email"),
+                "Active sales account",
+                null,
+                null,
+                "Active",
+                "success");
     }
 
     private boolean matchesActivityFilters(Activity activity, DashboardFilter filter) {
@@ -682,6 +856,37 @@ public class DashboardService {
                 "No account");
     }
 
+    private String assignedToName(User assignedTo) {
+        return assignedTo == null ? "Unassigned" : valueOrFallback(assignedTo.getFullName(), "Unassigned");
+    }
+
+    private String createdByName(User createdBy) {
+        return createdBy == null ? "Unknown" : valueOrFallback(createdBy.getFullName(), "Unknown");
+    }
+
+    private String companyLocation(Company company) {
+        return firstNonBlank(
+                company.getCity() == null ? null : company.getCity().getName(),
+                company.getLegacyCity(),
+                company.getProvince() == null ? null : company.getProvince().getName(),
+                company.getLegacyProvince(),
+                company.getCountry() == null ? null : company.getCountry().getName(),
+                company.getLegacyCountry(),
+                "No location");
+    }
+
+    private String formatDetailDate(LocalDate date) {
+        return date == null ? "-" : date.format(DETAIL_DATE_FORMAT);
+    }
+
+    private String formatDetailDateTime(LocalDateTime dateTime) {
+        return dateTime == null ? "-" : dateTime.format(DETAIL_DATE_TIME_FORMAT);
+    }
+
+    private String formatProbability(Integer probability) {
+        return probability == null ? "-" : probability + "%";
+    }
+
     private String statusName(OptionValue status, String statusCode) {
         return status == null ? displayCode(statusCode) : status.getName();
     }
@@ -719,19 +924,55 @@ public class DashboardService {
             List<RecentActivityDto> recentActivities) {
     }
 
-    public record Metric(String label, long value, BigDecimal amount, String caption, String tone, boolean percent) {
+    public record Metric(
+            MetricType type,
+            String label,
+            long value,
+            BigDecimal amount,
+            String caption,
+            String tone,
+            boolean percent) {
 
-        public Metric(String label, long value, String caption, String tone) {
-            this(label, value, null, caption, tone, false);
+        public Metric(MetricType type, String label, long value, String caption, String tone) {
+            this(type, label, value, null, caption, tone, false);
         }
 
-        public Metric(String label, BigDecimal amount, String caption, String tone) {
-            this(label, 0, amount, caption, tone, false);
+        public Metric(MetricType type, String label, BigDecimal amount, String caption, String tone) {
+            this(type, label, 0, amount, caption, tone, false);
         }
 
-        public Metric(String label, long value, String caption, String tone, boolean percent) {
-            this(label, value, null, caption, tone, percent);
+        public Metric(MetricType type, String label, long value, String caption, String tone, boolean percent) {
+            this(type, label, value, null, caption, tone, percent);
         }
+    }
+
+    public enum MetricType {
+        LEADS,
+        VALID_LEADS,
+        CONTACTS,
+        ORGANIZATIONS,
+        OPEN_PIPELINE,
+        WON_REVENUE,
+        WON_MARGIN,
+        FORECASTED_MARGIN,
+        CLOSING_SOON,
+        CLOSED_WIN_RATE,
+        ACTIVE_SALES
+    }
+
+    public record MetricDetails(DashboardFilter filter, List<MetricDetailRow> rows) {
+    }
+
+    public record MetricDetailRow(
+            UUID publicId,
+            String targetType,
+            String title,
+            String meta,
+            String secondary,
+            BigDecimal amount,
+            BigDecimal margin,
+            String badge,
+            String badgeTone) {
     }
 
     public record StatusSlice(String code, String label, long count, String color, BigDecimal amount) {

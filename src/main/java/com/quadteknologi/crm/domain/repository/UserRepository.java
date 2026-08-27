@@ -26,7 +26,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
             join UserRole userRole on userRole.user = user
             join userRole.role role
             where user.active = true
-              and role.name = 'Sales'
+              and role.active = true
+              and role.code = 'SALES'
             order by user.fullName asc
             """)
     List<User> findActiveSalesUsersOrderByFullNameAsc();

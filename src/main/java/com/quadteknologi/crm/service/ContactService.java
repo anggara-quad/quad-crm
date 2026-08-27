@@ -120,6 +120,26 @@ public class ContactService {
     }
 
     @Transactional(readOnly = true)
+    public List<Person> findDashboardPersons(LocalDateTime from, LocalDateTime to, Long createdById) {
+        if (createdById == null) {
+            return personRepository.findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(from, to);
+        }
+        return personRepository
+                .findByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndCreatedByIdOrderByCreatedAtDesc(
+                        from, to, createdById);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Company> findDashboardCompanies(LocalDateTime from, LocalDateTime to, Long createdById) {
+        if (createdById == null) {
+            return companyRepository.findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(from, to);
+        }
+        return companyRepository
+                .findByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndCreatedByIdOrderByCreatedAtDesc(
+                        from, to, createdById);
+    }
+
+    @Transactional(readOnly = true)
     public List<Lead> findLeadsForPerson(Person person) {
         if (person == null || person.getId() == null) {
             return List.of();
