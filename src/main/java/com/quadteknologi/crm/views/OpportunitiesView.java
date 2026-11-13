@@ -52,6 +52,7 @@ import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.PermitAll;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -313,6 +314,22 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                         .comparing((Opportunity opportunity) -> opportunity.getExpectedCloseDate(),
                                 Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(opportunity -> probabilityOrZero(opportunity.getProbability())));
+        grid.addColumn(opportunityInvoiceDateRenderer())
+                .setHeader("Invoice date")
+                .setAutoWidth(true)
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        (Opportunity opportunity) -> opportunity.getInvoiceDate(),
+                        Comparator.nullsLast(Comparator.naturalOrder())));
+        grid.addColumn(opportunityClosedDateRenderer())
+                .setHeader("Closed date")
+                .setAutoWidth(true)
+                .setFlexGrow(1)
+                .setSortable(true)
+                .setComparator(Comparator.comparing(
+                        (Opportunity opportunity) -> opportunity.getClosedDate(),
+                        Comparator.nullsLast(Comparator.naturalOrder())));
         grid.addColumn(opportunityOwnerRenderer())
                 .setHeader("Owner")
                 .setAutoWidth(true)
@@ -378,6 +395,22 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 .withProperty("closeDate", opportunity -> opportunity.getExpectedCloseDate() == null
                         ? "No close date"
                         : "Close " + opportunity.getExpectedCloseDate().format(DATE_FORMAT));
+    }
+
+    private LitRenderer<Opportunity> opportunityInvoiceDateRenderer() {
+        return opportunityDateRenderer(Opportunity::getInvoiceDate);
+    }
+
+    private LitRenderer<Opportunity> opportunityClosedDateRenderer() {
+        return opportunityDateRenderer(Opportunity::getClosedDate);
+    }
+
+    private LitRenderer<Opportunity> opportunityDateRenderer(
+            java.util.function.Function<Opportunity, LocalDate> dateExtractor) {
+        return LitRenderer.<Opportunity>of("""
+                <span class="pipeline-grid-primary">${item.date}</span>
+                """)
+                .withProperty("date", opportunity -> formatDateOrDash(dateExtractor.apply(opportunity)));
     }
 
     private LitRenderer<Opportunity> opportunityOwnerRenderer() {
@@ -489,7 +522,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 editing ? "Update opportunity details and stage." : "Capture an opportunity and its first stage.",
                 editing);
 
-        List<OptionValue> statuses = opportunityService.findPipelineStatuses();
+        List<OptionValue> statuses = opportunityService.findSelectableStatuses(
+                opportunity == null ? null : opportunity.getStatusCode());
         List<OptionValue> productTypes = opportunityService.findProductTypes();
         List<Lead> leads = new ArrayList<>(opportunityService.findValidLeads());
         List<Company> companies = new ArrayList<>(opportunityService.findCompanies());
@@ -598,6 +632,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         probability.setSuffixComponent(new Span("%"));
 
         DatePicker expectedClose = new DatePicker("Expected Close");
+        DatePicker invoiceDate = new DatePicker("Invoice Date");
+        DatePicker closedDate = new DatePicker("Closed Date");
 
         ComboBox<User> assignedTo = new ComboBox<>("Assigned To");
         assignedTo.setItems(opportunityService.findAssignableUsers());
@@ -621,7 +657,17 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
             soNumber.setVisible(visible);
             contractPoNumber.setVisible(visible);
         };
-        status.addValueChangeListener(event -> updateWonDocumentVisibility.run());
+        Runnable updateStatusDateVisibility = () -> {
+            String selectedCode = status.getValue() == null ? null : status.getValue().getCode();
+            boolean invoicedOrClosed = Objects.equals("INVOICED", selectedCode)
+                    || Objects.equals("CLOSED", selectedCode);
+            invoiceDate.setVisible(invoicedOrClosed || invoiceDate.getValue() != null);
+            closedDate.setVisible(Objects.equals("CLOSED", selectedCode) || closedDate.getValue() != null);
+        };
+        status.addValueChangeListener(event -> {
+            updateWonDocumentVisibility.run();
+            updateStatusDateVisibility.run();
+        });
 
         binder.forField(title)
                 .asRequired("Opportunity title is required")
@@ -657,6 +703,12 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 .asRequired("Expected Close is required")
                 .bind(OpportunityService.OpportunityRequest::getExpectedCloseDate, OpportunityService.OpportunityRequest::setExpectedCloseDate);
 
+        binder.bind(invoiceDate, OpportunityService.OpportunityRequest::getInvoiceDate,
+                OpportunityService.OpportunityRequest::setInvoiceDate);
+
+        binder.bind(closedDate, OpportunityService.OpportunityRequest::getClosedDate,
+                OpportunityService.OpportunityRequest::setClosedDate);
+
         binder.forField(assignedTo)
                 .asRequired("Assigned To is required")
                 .bind(OpportunityService.OpportunityRequest::getAssignedTo, OpportunityService.OpportunityRequest::setAssignedTo);
@@ -683,6 +735,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
         binder.readBean(request);
         updateWonDocumentVisibility.run();
+        updateStatusDateVisibility.run();
 
         Div formBody = new Div();
         formBody.addClassName("pipeline-form-body");
@@ -699,6 +752,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 margin,
                 probability,
                 expectedClose,
+                invoiceDate,
+                closedDate,
                 assignedTo,
                 wonDocumentsDivider,
                 soNumber,
@@ -723,6 +778,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
         request.setMargin(opportunity.getMargin());
         request.setProbability(opportunity.getProbability());
         request.setExpectedCloseDate(opportunity.getExpectedCloseDate());
+        request.setInvoiceDate(opportunity.getInvoiceDate());
+        request.setClosedDate(opportunity.getClosedDate());
         request.setAssignedTo(opportunity.getAssignedTo());
         request.setDescription(opportunity.getDescription());
         request.setNotes(opportunity.getNotes());
@@ -1221,6 +1278,8 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 detailRow("Margin", formatAmountOrDash(opportunity.getMargin())),
                 detailRow("Probability", formatProbabilityOrDash(opportunity.getProbability())),
                 detailRow("Expected close", opportunity.getExpectedCloseDate() == null ? "-" : opportunity.getExpectedCloseDate().format(DATE_FORMAT)),
+                detailRow("Invoice date", formatDateOrDash(opportunity.getInvoiceDate())),
+                detailRow("Closed date", formatDateOrDash(opportunity.getClosedDate())),
                 detailRow("SO Number", opportunity.getSoNumber()),
                 detailRow("Contract / PO Number", opportunity.getContractPoNumber()),
                 detailRow("Assigned to", opportunity.getAssignedTo() == null ? "-" : opportunity.getAssignedTo().getFullName()),
@@ -1235,7 +1294,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     }
 
     private Component createStatusControl(Opportunity opportunity) {
-        List<OptionValue> statuses = opportunityService.findPipelineStatuses();
+        List<OptionValue> statuses = opportunityService.findSelectableStatuses(opportunity.getStatusCode());
 
         ComboBox<OptionValue> status = new ComboBox<>("Move Stage");
         status.addClassName("pipeline-status-control");
@@ -1425,6 +1484,10 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
 
     private boolean isWonStatus(OptionValue status) {
         return status != null && Objects.equals("WON", status.getCode());
+    }
+
+    private String formatDateOrDash(LocalDate date) {
+        return date == null ? "-" : date.format(DATE_FORMAT);
     }
 
     private String formatAmount(BigDecimal amount) {

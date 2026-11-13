@@ -6,6 +6,7 @@ import com.quadteknologi.crm.security.CurrentUserService;
 import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.service.ClosingSoonDto;
 import com.quadteknologi.crm.service.DashboardFilter;
+import com.quadteknologi.crm.service.DashboardFilterSession;
 import com.quadteknologi.crm.service.DashboardScope;
 import com.quadteknologi.crm.service.DashboardService;
 import com.quadteknologi.crm.service.DashboardService.DashboardData;
@@ -22,6 +23,7 @@ import com.vaadin.flow.component.ClientCallable;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.card.Card;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.html.Div;
@@ -68,6 +70,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
     private final DashboardService dashboardService;
     private final CurrentUserService currentUserService;
     private final ViewAccessService viewAccessService;
+    private final DashboardFilterSession filterSession;
 
     private DashboardFilter filter;
     private boolean loadScheduled;
@@ -75,11 +78,15 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
     public DashboardView(
             DashboardService dashboardService,
             CurrentUserService currentUserService,
-            ViewAccessService viewAccessService) {
+            ViewAccessService viewAccessService,
+            DashboardFilterSession filterSession) {
         this.dashboardService = dashboardService;
         this.currentUserService = currentUserService;
         this.viewAccessService = viewAccessService;
-        this.filter = dashboardService.defaultFilter();
+        this.filterSession = filterSession;
+        this.filter = filterSession.getDashboard() != null
+                ? filterSession.getDashboard()
+                : dashboardService.defaultFilter();
 
         addClassNames("page-view", "dashboard-view");
         setPadding(false);
@@ -128,6 +135,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
         removeAll();
         DashboardData data = dashboardService.getDashboardData(filter);
         filter = data.filter();
+        filterSession.setDashboard(filter);
 
         add(createHeader(data));
         add(createFilterBar(data));
@@ -216,6 +224,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
         filter = filter
                 .withScope(scope, sales == null ? null : sales.getId())
                 .withDateRange(startDate, endDate);
+        filterSession.setDashboard(filter);
         scheduleRender();
     }
 
@@ -253,13 +262,13 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
     }
 
     private Component createMetricCard(Metric metric) {
-        Div card = new Div();
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-metric-card", "dashboard-metric-card-action",
                 "dashboard-tone-" + metric.tone());
         card.getElement().setAttribute("role", "button");
         card.getElement().setAttribute("tabindex", "0");
         card.getElement().setAttribute("aria-label", "Show " + metric.label() + " details");
-        card.addClickListener(event -> openMetricDetails(metric));
+        card.getElement().addEventListener("click", event -> openMetricDetails(metric));
         card.getElement().addEventListener("keydown", event -> openMetricDetails(metric))
                 .setFilter("event.key === 'Enter' || event.key === ' '");
 
@@ -380,7 +389,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
     }
 
     private Component createStatusChart(String title, List<StatusSlice> slices, boolean amountMode) {
-        Div card = new Div();
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-chart-card");
 
         card.add(createCardTitle(title));
@@ -420,7 +429,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
     }
 
     private Component createLeadSourceCard(String title, List<LeadSourcePerformanceDto> sources) {
-        Div card = new Div();
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-list-card", "lead-source-card");
         card.add(createCardTitle(title));
 
@@ -479,7 +488,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
     }
 
     private Component createActivityCard(String title, List<RecentActivityDto> activities, boolean showSales) {
-        Div card = new Div();
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-list-card");
         card.add(createCardTitle(title));
 
@@ -532,7 +541,7 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
     }
 
     private Component createClosingSoonCard(String title, List<ClosingSoonDto> opportunities, boolean showSales) {
-        Div card = new Div();
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-list-card");
         card.add(createCardTitle(title));
 

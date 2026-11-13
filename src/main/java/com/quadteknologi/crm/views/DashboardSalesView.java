@@ -4,6 +4,7 @@ import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.security.AppViewAccess;
 import com.quadteknologi.crm.security.ViewAccessService;
 import com.quadteknologi.crm.service.DashboardFilter;
+import com.quadteknologi.crm.service.DashboardFilterSession;
 import com.quadteknologi.crm.service.DashboardScope;
 import com.quadteknologi.crm.service.DashboardService;
 import com.quadteknologi.crm.service.DashboardService.DashboardData;
@@ -19,6 +20,7 @@ import com.vaadin.flow.component.ClientCallable;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.card.Card;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.html.Div;
@@ -61,16 +63,23 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
 
     private final DashboardService dashboardService;
     private final ViewAccessService viewAccessService;
+    private final DashboardFilterSession filterSession;
 
     private DashboardFilter filter;
     private Long selectedSalesId;
     private DetailType selectedDetailType;
     private boolean loadScheduled;
 
-    public DashboardSalesView(DashboardService dashboardService, ViewAccessService viewAccessService) {
+    public DashboardSalesView(
+            DashboardService dashboardService,
+            ViewAccessService viewAccessService,
+            DashboardFilterSession filterSession) {
         this.dashboardService = dashboardService;
         this.viewAccessService = viewAccessService;
-        this.filter = dashboardService.defaultFilter();
+        this.filterSession = filterSession;
+        this.filter = filterSession.getSales() != null
+                ? filterSession.getSales()
+                : dashboardService.defaultFilter();
 
         addClassNames("page-view", "dashboard-view", "dashboard-sales-view");
         setPadding(false);
@@ -126,6 +135,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
                 selectedDetailType == DetailType.LEADS,
                 selectedDetailType == DetailType.OPPORTUNITIES);
         filter = data.filter();
+        filterSession.setSales(filter);
 
         add(createHeader(), createFilterBar(data), createMetricGrid(createMetrics(data)),
                 createSalesPerformanceCard(data.salesPerformance()));
@@ -191,6 +201,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
         filter = filter
                 .withScope(scope, sales == null ? null : sales.getId())
                 .withDateRange(startDate, endDate);
+        filterSession.setSales(filter);
         selectedSalesId = null;
         selectedDetailType = null;
         scheduleRender();
@@ -223,13 +234,13 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
     }
 
     private Component createMetricCard(Metric metric) {
-        Div card = new Div();
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-metric-card", "dashboard-metric-card-action",
                 "dashboard-tone-" + metric.tone());
         card.getElement().setAttribute("role", "button");
         card.getElement().setAttribute("tabindex", "0");
         card.getElement().setAttribute("aria-label", "Show " + metric.label() + " details");
-        card.addClickListener(event -> openMetricDetails(metric));
+        card.getElement().addEventListener("click", event -> openMetricDetails(metric));
         card.getElement().addEventListener("keydown", event -> openMetricDetails(metric))
                 .setFilter("event.key === 'Enter' || event.key === ' '");
 
@@ -258,7 +269,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
     }
 
     private Component createSalesPerformanceCard(List<SalesPerformanceDto> performance) {
-        Div card = new Div();
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-list-card", "manager-sales-card");
         card.add(createCardTitle("Sales Detail"));
 
@@ -342,7 +353,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
     }
 
     private Component createLeadDetailCard(SalesPerformanceDto performance) {
-        Div card = createDetailCardShell("Leads / Valid - " + performance.salesName());
+        Card card = createDetailCardShell("Leads / Valid - " + performance.salesName());
 
         Div list = new Div();
         list.addClassName("sales-breakdown-list");
@@ -357,7 +368,7 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
     }
 
     private Component createOpportunityDetailCard(SalesPerformanceDto performance) {
-        Div card = createDetailCardShell("Open Pipeline - " + performance.salesName());
+        Card card = createDetailCardShell("Open Pipeline - " + performance.salesName());
 
         Div list = new Div();
         list.addClassName("sales-breakdown-list");
@@ -371,8 +382,8 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
         return card;
     }
 
-    private Div createDetailCardShell(String titleText) {
-        Div card = new Div();
+    private Card createDetailCardShell(String titleText) {
+        Card card = new Card();
         card.addClassNames("dashboard-card", "dashboard-list-card", "sales-breakdown-card");
 
         Div header = new Div();

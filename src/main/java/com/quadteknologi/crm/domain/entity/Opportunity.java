@@ -55,6 +55,12 @@ public class Opportunity extends AbstractAuditedEntity {
     @Column(name = "expected_close_date")
     private LocalDate expectedCloseDate;
 
+    @Column(name = "invoice_date")
+    private LocalDate invoiceDate;
+
+    @Column(name = "closed_date")
+    private LocalDate closedDate;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assigned_to")
     private User assignedTo;
@@ -173,6 +179,22 @@ public class Opportunity extends AbstractAuditedEntity {
 
     public void setExpectedCloseDate(LocalDate expectedCloseDate) {
         this.expectedCloseDate = expectedCloseDate;
+    }
+
+    public LocalDate getInvoiceDate() {
+        return invoiceDate;
+    }
+
+    public void setInvoiceDate(LocalDate invoiceDate) {
+        this.invoiceDate = invoiceDate;
+    }
+
+    public LocalDate getClosedDate() {
+        return closedDate;
+    }
+
+    public void setClosedDate(LocalDate closedDate) {
+        this.closedDate = closedDate;
     }
 
     public User getAssignedTo() {

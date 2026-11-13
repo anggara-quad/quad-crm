@@ -1953,6 +1953,11 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
 }
 
 .dashboard-card {
+    --vaadin-card-background: transparent;
+    --vaadin-card-border-radius: 0;
+    --vaadin-card-border-width: 0;
+    --vaadin-card-gap: 0;
+    --vaadin-card-padding: 0;
     background: #FFFFFF;
     border: 1px solid #D8DEE8;
     border-radius: 8px;
@@ -1960,11 +1965,14 @@ vaadin-app-layout > [slot="drawer"] vaadin-vertical-layout {
 }
 
 .dashboard-metric-card {
+    min-height: 118px;
+    padding: 16px;
+}
+
+.dashboard-metric-card::part(content) {
     align-items: flex-start;
     display: flex;
     gap: 12px;
-    min-height: 118px;
-    padding: 16px;
 }
 
 .dashboard-metric-card-action {

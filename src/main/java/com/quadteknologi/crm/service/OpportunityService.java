@@ -44,6 +44,8 @@ public class OpportunityService {
     private static final String PRODUCT_TYPE_GROUP = "PRODUCT_TYPE";
     private static final String ACTIVITY_TYPE_GROUP = "ACTIVITY_TYPE";
     private static final String WON_STATUS_CODE = "WON";
+    private static final String INVOICED_STATUS_CODE = "INVOICED";
+    private static final String CLOSED_STATUS_CODE = "CLOSED";
     private static final String CREATED_ACTIVITY_TYPE = "CREATED";
     private static final String STATUS_CHANGE_ACTIVITY_TYPE = "STATUS_CHANGE";
 
@@ -86,6 +88,26 @@ public class OpportunityService {
                 .findByGroupCodeAndActiveTrueOrderBySortOrderAsc(OPPORTUNITY_STATUS_GROUP)
                 .stream()
                 .filter(this::isShownInPipeline)
+                .toList();
+    }
+
+    public List<OptionValue> findSelectableStatuses(String currentStatusCode) {
+        List<OptionValue> statuses = findPipelineStatuses();
+        if (INVOICED_STATUS_CODE.equals(currentStatusCode)) {
+            return statuses.stream()
+                    .filter(status -> INVOICED_STATUS_CODE.equals(status.getCode())
+                            || CLOSED_STATUS_CODE.equals(status.getCode()))
+                    .toList();
+        }
+        if (CLOSED_STATUS_CODE.equals(currentStatusCode)) {
+            return statuses.stream()
+                    .filter(status -> CLOSED_STATUS_CODE.equals(status.getCode()))
+                    .toList();
+        }
+        return statuses.stream()
+                .filter(status -> !CLOSED_STATUS_CODE.equals(status.getCode()))
+                .filter(status -> !INVOICED_STATUS_CODE.equals(status.getCode())
+                        || WON_STATUS_CODE.equals(currentStatusCode))
                 .toList();
     }
 
@@ -164,6 +186,7 @@ public class OpportunityService {
 
     @Transactional
     public Opportunity createOpportunity(OpportunityRequest request) {
+        assertCreatableStatus(request.getStatus());
         Opportunity opportunity = new Opportunity();
         applyRequest(opportunity, request);
         opportunity.setCreatedBy(dataAccessService.requireCurrentUserReference());
@@ -182,6 +205,12 @@ public class OpportunityService {
     public Opportunity updateOpportunity(Long id, OpportunityRequest request) {
         Opportunity opportunity = findOpportunity(id);
         String previousStatusCode = opportunity.getStatusCode();
+        String nextStatusCode = request.getStatus() == null
+                ? "PRODUCT_SOLUTIONING"
+                : request.getStatus().getCode();
+        if (!Objects.equals(previousStatusCode, nextStatusCode)) {
+            assertStatusTransitionAllowed(previousStatusCode, nextStatusCode);
+        }
         applyRequest(opportunity, request);
         Opportunity savedOpportunity = opportunityRepository.save(opportunity);
         replaceOpportunityItems(savedOpportunity, request.getItems());
@@ -208,11 +237,14 @@ public class OpportunityService {
             return opportunity;
         }
 
+        assertStatusTransitionAllowed(previousStatusCode, nextStatusCode);
+
         opportunity.setStatusGroupCode(OPPORTUNITY_STATUS_GROUP);
         opportunity.setStatusCode(nextStatusCode);
         applyWonDocumentNumbers(opportunity, soNumber, contractPoNumber);
         validateWonDocumentNumbers(opportunity);
         applyWinLossDates(opportunity, status);
+        applyStatusDates(opportunity, nextStatusCode);
         Opportunity savedOpportunity = opportunityRepository.save(opportunity);
         activityRepository.save(createStatusChangedActivity(savedOpportunity, previousStatusCode, nextStatusCode));
         return opportunityRepository.findById(savedOpportunity.getId()).orElse(savedOpportunity);
@@ -341,6 +373,8 @@ public class OpportunityService {
         opportunity.setMargin(requiredNonNegativeAmount(request.getMargin(), "Margin"));
         opportunity.setProbability(request.getProbability());
         opportunity.setExpectedCloseDate(request.getExpectedCloseDate());
+        opportunity.setInvoiceDate(request.getInvoiceDate());
+        opportunity.setClosedDate(request.getClosedDate());
         opportunity.setAssignedTo(assignedTo);
         opportunity.setDescription(trimToNull(request.getDescription()));
         opportunity.setNotes(trimToNull(request.getNotes()));
@@ -349,6 +383,43 @@ public class OpportunityService {
         opportunity.setUpdatedBy(assignedTo);
         validateWonDocumentNumbers(opportunity);
         applyWinLossDates(opportunity, request.getStatus());
+        applyStatusDates(opportunity, opportunity.getStatusCode());
+    }
+
+    private void assertCreatableStatus(OptionValue status) {
+        if (status == null) {
+            return;
+        }
+        if (INVOICED_STATUS_CODE.equals(status.getCode()) || CLOSED_STATUS_CODE.equals(status.getCode())) {
+            throw new IllegalArgumentException("New opportunities cannot start at " + status.getName());
+        }
+    }
+
+    private void assertStatusTransitionAllowed(String currentStatusCode, String nextStatusCode) {
+        if (Objects.equals(currentStatusCode, nextStatusCode)) {
+            return;
+        }
+        if (CLOSED_STATUS_CODE.equals(currentStatusCode)) {
+            throw new IllegalArgumentException("Closed opportunities cannot change stage");
+        }
+        if (INVOICED_STATUS_CODE.equals(currentStatusCode) && !CLOSED_STATUS_CODE.equals(nextStatusCode)) {
+            throw new IllegalArgumentException("Invoiced opportunities can only move to Closed");
+        }
+        if (INVOICED_STATUS_CODE.equals(nextStatusCode) && !WON_STATUS_CODE.equals(currentStatusCode)) {
+            throw new IllegalArgumentException("Only Won opportunities can move to Invoiced");
+        }
+        if (CLOSED_STATUS_CODE.equals(nextStatusCode) && !INVOICED_STATUS_CODE.equals(currentStatusCode)) {
+            throw new IllegalArgumentException("Only Invoiced opportunities can move to Closed");
+        }
+    }
+
+    private void applyStatusDates(Opportunity opportunity, String statusCode) {
+        if (INVOICED_STATUS_CODE.equals(statusCode) && opportunity.getInvoiceDate() == null) {
+            opportunity.setInvoiceDate(LocalDate.now());
+        }
+        if (CLOSED_STATUS_CODE.equals(statusCode) && opportunity.getClosedDate() == null) {
+            opportunity.setClosedDate(LocalDate.now());
+        }
     }
 
     private void applyWonDocumentNumbers(Opportunity opportunity, String soNumber, String contractPoNumber) {
@@ -453,7 +524,9 @@ public class OpportunityService {
             return;
         }
         if (Boolean.TRUE.equals(status.getWon())) {
-            opportunity.setWonAt(LocalDateTime.now());
+            if (opportunity.getWonAt() == null) {
+                opportunity.setWonAt(LocalDateTime.now());
+            }
             opportunity.setLostAt(null);
             return;
         }
@@ -517,6 +590,8 @@ public class OpportunityService {
         private BigDecimal margin;
         private Integer probability;
         private LocalDate expectedCloseDate;
+        private LocalDate invoiceDate;
+        private LocalDate closedDate;
         private User assignedTo;
         private String description;
         private String notes;
@@ -594,6 +669,22 @@ public class OpportunityService {
 
         public void setExpectedCloseDate(LocalDate expectedCloseDate) {
             this.expectedCloseDate = expectedCloseDate;
+        }
+
+        public LocalDate getInvoiceDate() {
+            return invoiceDate;
+        }
+
+        public void setInvoiceDate(LocalDate invoiceDate) {
+            this.invoiceDate = invoiceDate;
+        }
+
+        public LocalDate getClosedDate() {
+            return closedDate;
+        }
+
+        public void setClosedDate(LocalDate closedDate) {
+            this.closedDate = closedDate;
         }
 
         public User getAssignedTo() {

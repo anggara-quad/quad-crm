@@ -106,8 +106,10 @@ public class DashboardService {
                     .filter(this::isWonOpportunity)
                     .map(this::mapMetricOpportunity)
                     .toList();
-            case FORECASTED_MARGIN -> findMetricOpportunities(filter, from, to).stream()
-                    .filter(opportunity -> !isWonOpportunity(opportunity))
+            case FORECASTED_MARGIN -> findForecastMetricOpportunities(filter).stream()
+                    .filter(this::isOpenOpportunity)
+                    .sorted(Comparator.comparing(
+                            Opportunity::getExpectedCloseDate, Comparator.nullsLast(Comparator.naturalOrder())))
                     .map(this::mapMetricOpportunity)
                     .toList();
             case CLOSING_SOON -> opportunityRepository.findDashboardClosingSoon(
@@ -176,7 +178,11 @@ public class DashboardService {
         DashboardSummaryDto summary = buildSummary(
                 leads, opportunities, closingSoon, salesPerformance, filter, contacts, organizations);
         List<StatusSlice> leadQualification = mapLeadStatuses(leadStatuses, leads);
-        List<StatusSlice> opportunityPipeline = mapOpportunityStatuses(opportunityStatuses, opportunities);
+        List<StatusSlice> opportunityPipeline = mapOpportunityStatuses(
+                opportunityStatuses.stream()
+                        .filter(status -> !isClosedOpportunityStatus(status))
+                        .toList(),
+                opportunities);
         List<LeadSourcePerformanceDto> leadSources = mapLeadSources(
                 leadRepository.summarizeLeadSources(
                         LEAD_STATUS_GROUP,
@@ -256,9 +262,12 @@ public class DashboardService {
         }
         if (salesId != null) {
             Long selectedSalesId = salesId;
-            if (userRepository.findActiveSalesUsersOrderByFullNameAsc().stream()
-                    .noneMatch(user -> Objects.equals(user.getId(), selectedSalesId))) {
-                throw new AccessDeniedException("Selected sales user was not found.");
+            boolean visibleSalesUser = userRepository.findActiveSalesUsersOrderByFullNameAsc().stream()
+                    .anyMatch(user -> Objects.equals(user.getId(), selectedSalesId));
+            // A filter restored from the session may name a sales user that is no longer visible.
+            if (!visibleSalesUser) {
+                scope = DashboardScope.TEAM_DATA;
+                salesId = null;
             }
         }
 
@@ -318,6 +327,13 @@ public class DashboardService {
         return applyOpportunityFilters(
                 opportunityRepository.findDashboardOpportunities(
                         OPPORTUNITY_STATUS_GROUP, from, to, filter.salesId()),
+                filter);
+    }
+
+    private List<Opportunity> findForecastMetricOpportunities(DashboardFilter filter) {
+        return applyOpportunityFilters(
+                opportunityRepository.findDashboardForecastOpportunities(
+                        OPPORTUNITY_STATUS_GROUP, filter.startDate(), filter.endDate(), filter.salesId()),
                 filter);
     }
 
@@ -787,6 +803,10 @@ public class DashboardService {
 
     private boolean isOpenOpportunity(Opportunity opportunity) {
         return !isWonOpportunity(opportunity) && !isLostOpportunity(opportunity);
+    }
+
+    private boolean isClosedOpportunityStatus(OptionValue status) {
+        return Boolean.TRUE.equals(status.getWon()) || Boolean.TRUE.equals(status.getLost());
     }
 
     private boolean isWonOpportunity(Opportunity opportunity) {

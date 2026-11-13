@@ -157,6 +157,20 @@ public interface OpportunityRepository extends JpaRepository<Opportunity, Long> 
     @Query("""
             select opportunity
             from Opportunity opportunity
+            where opportunity.statusGroupCode = :statusGroupCode
+              and opportunity.expectedCloseDate between :from and :to
+              and (:assignedToId is null or opportunity.assignedTo.id = :assignedToId)
+            """)
+    @EntityGraph(attributePaths = {"lead", "company", "person", "assignedTo", "status"})
+    List<Opportunity> findDashboardForecastOpportunities(
+            @Param("statusGroupCode") String statusGroupCode,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("assignedToId") Long assignedToId);
+
+    @Query("""
+            select opportunity
+            from Opportunity opportunity
             left join opportunity.status status
             where opportunity.statusGroupCode = :statusGroupCode
               and opportunity.expectedCloseDate between :from and :to
