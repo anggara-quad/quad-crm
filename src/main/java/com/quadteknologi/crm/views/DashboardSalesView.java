@@ -220,6 +220,12 @@ public class DashboardSalesView extends VerticalLayout implements BeforeEnterObs
                 summary.openOpportunities() + " active opportunities | Margin " + formatRupiahOrZero(summary.openMargin()),
                 "pipeline"));
         metrics.add(new Metric(MetricType.WON_MARGIN, "Total Margin", summary.wonMargin(), "Won opportunities", "opportunity"));
+        metrics.add(new Metric(MetricType.INVOICED, "Invoiced", summary.invoicedRevenue(),
+                summary.invoicedOpportunities() + " invoiced opportunities | Margin "
+                        + formatRupiahOrZero(summary.invoicedMargin()), "opportunity"));
+        metrics.add(new Metric(MetricType.CLOSED, "Closed", summary.closedRevenue(),
+                summary.closedOpportunities() + " closed opportunities | Margin "
+                        + formatRupiahOrZero(summary.closedMargin()), "opportunity"));
         metrics.add(new Metric(MetricType.FORECASTED_MARGIN, "Forecasted Margin", summary.forecastedMargin(),
                 "Opportunities not won", "pipeline"));
         metrics.add(new Metric(MetricType.CLOSED_WIN_RATE, "Closed Win Rate", summary.closedWinRate(), "Won / (Won + Lost)", "lead", true));

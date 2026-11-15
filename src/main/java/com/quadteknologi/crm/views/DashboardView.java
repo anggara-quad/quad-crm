@@ -243,6 +243,12 @@ public class DashboardView extends VerticalLayout implements BeforeEnterObserver
                 "Margin " + formatRupiahOrZero(summary.wonMargin()) + " | Won ratio " + summary.wonRatio() + "%",
                 "opportunity"));
         metrics.add(new Metric(MetricType.WON_MARGIN, "Total Margin", summary.wonMargin(), "Won opportunities", "opportunity"));
+        metrics.add(new Metric(MetricType.INVOICED, "Invoiced", summary.invoicedRevenue(),
+                summary.invoicedOpportunities() + " invoiced opportunities | Margin "
+                        + formatRupiahOrZero(summary.invoicedMargin()), "opportunity"));
+        metrics.add(new Metric(MetricType.CLOSED, "Closed", summary.closedRevenue(),
+                summary.closedOpportunities() + " closed opportunities | Margin "
+                        + formatRupiahOrZero(summary.closedMargin()), "opportunity"));
         metrics.add(new Metric(MetricType.FORECASTED_MARGIN, "Forecasted Margin", summary.forecastedMargin(),
                 "Opportunities not won", "pipeline"));
         metrics.add(new Metric(MetricType.CLOSING_SOON, "Closing Soon", summary.closingSoon(), "Expected in next 30 days", "contact"));

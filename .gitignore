@@ -44,3 +44,5 @@ package-lock.json
 /src/main/frontend/generated/flow/generated-flow-imports.js
 /src/main/frontend/generated/flow/generated-flow-webcomponent-imports.js
 vite.generated.ts
+/generate.sh
+/src/main/resources/META-INF/resources/templates/import-glo.xlsx

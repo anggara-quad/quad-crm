@@ -139,6 +139,43 @@ class DashboardServiceMetricDetailsTest {
     }
 
     @Test
+    void invoicedDetailsOnlyIncludeInvoicedOpportunities() {
+        Opportunity invoiced = opportunity("Invoiced opportunity", "INVOICED");
+        Opportunity closed = opportunity("Closed opportunity", "CLOSED");
+        Opportunity won = opportunity("Won opportunity", "WON");
+        when(opportunityRepository.findDashboardOpportunities(
+                "OPPORTUNITY_STATUS",
+                filter.startDate().atStartOfDay(),
+                filter.endDate().plusDays(1).atStartOfDay(),
+                null)).thenReturn(List.of(invoiced, closed, won));
+
+        MetricDetails details = service.getMetricDetails(filter, MetricType.INVOICED);
+
+        assertThat(details.rows()).extracting(DashboardService.MetricDetailRow::title)
+                .containsExactly("Invoiced opportunity");
+        assertThat(details.rows()).extracting(DashboardService.MetricDetailRow::badge)
+                .containsExactly("Invoiced");
+    }
+
+    @Test
+    void closedDetailsOnlyIncludeClosedOpportunities() {
+        Opportunity invoiced = opportunity("Invoiced opportunity", "INVOICED");
+        Opportunity closed = opportunity("Closed opportunity", "CLOSED");
+        when(opportunityRepository.findDashboardOpportunities(
+                "OPPORTUNITY_STATUS",
+                filter.startDate().atStartOfDay(),
+                filter.endDate().plusDays(1).atStartOfDay(),
+                null)).thenReturn(List.of(invoiced, closed));
+
+        MetricDetails details = service.getMetricDetails(filter, MetricType.CLOSED);
+
+        assertThat(details.rows()).extracting(DashboardService.MetricDetailRow::title)
+                .containsExactly("Closed opportunity");
+        assertThat(details.rows()).extracting(DashboardService.MetricDetailRow::badge)
+                .containsExactly("Closed");
+    }
+
+    @Test
     void validLeadDetailsOnlyIncludeQualifiedLeads() {
         Lead valid = lead("Valid lead", "VALID");
         Lead newLead = lead("New lead", "NEW");

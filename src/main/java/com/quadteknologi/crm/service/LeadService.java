@@ -114,6 +114,7 @@ public class LeadService {
                 : leadRepository.findByStatusGroupCodeOrderByCreatedAtDesc(LEAD_STATUS_GROUP);
         return leads
                 .stream()
+                .filter(lead -> lead.getConvertedAt() == null)
                 .collect(Collectors.groupingBy(Lead::getStatusCode));
     }
 

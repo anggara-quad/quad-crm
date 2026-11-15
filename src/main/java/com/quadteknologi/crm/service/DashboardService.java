@@ -43,6 +43,8 @@ public class DashboardService {
     private static final String LEAD_STATUS_GROUP = "LEAD_STATUS";
     private static final String OPPORTUNITY_STATUS_GROUP = "OPPORTUNITY_STATUS";
     private static final String VALID_LEAD_STATUS = "VALID";
+    private static final String INVOICED_STATUS = "INVOICED";
+    private static final String CLOSED_STATUS = "CLOSED";
     private static final int CLOSING_SOON_DAYS = 30;
     private static final DateTimeFormatter DETAIL_DATE_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy");
     private static final DateTimeFormatter DETAIL_DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
@@ -104,6 +106,14 @@ public class DashboardService {
                     .toList();
             case WON_REVENUE, WON_MARGIN -> findMetricOpportunities(filter, from, to).stream()
                     .filter(this::isWonOpportunity)
+                    .map(this::mapMetricOpportunity)
+                    .toList();
+            case INVOICED -> findMetricOpportunities(filter, from, to).stream()
+                    .filter(opportunity -> INVOICED_STATUS.equals(opportunity.getStatusCode()))
+                    .map(this::mapMetricOpportunity)
+                    .toList();
+            case CLOSED -> findMetricOpportunities(filter, from, to).stream()
+                    .filter(opportunity -> CLOSED_STATUS.equals(opportunity.getStatusCode()))
                     .map(this::mapMetricOpportunity)
                     .toList();
             case FORECASTED_MARGIN -> findForecastMetricOpportunities(filter).stream()
@@ -368,8 +378,16 @@ public class DashboardService {
     }
 
     private MetricDetailRow mapMetricOpportunity(Opportunity opportunity) {
-        String state = isWonOpportunity(opportunity) ? "Won" : isLostOpportunity(opportunity) ? "Lost" : "Open";
-        String tone = isWonOpportunity(opportunity) ? "success" : isLostOpportunity(opportunity) ? "error" : "primary";
+        String state = INVOICED_STATUS.equals(opportunity.getStatusCode())
+                ? "Invoiced"
+                : CLOSED_STATUS.equals(opportunity.getStatusCode())
+                        ? "Closed"
+                        : isWonOpportunity(opportunity) ? "Won" : isLostOpportunity(opportunity) ? "Lost" : "Open";
+        String tone = INVOICED_STATUS.equals(opportunity.getStatusCode())
+                ? "success"
+                : CLOSED_STATUS.equals(opportunity.getStatusCode())
+                        ? "muted"
+                        : isWonOpportunity(opportunity) ? "success" : isLostOpportunity(opportunity) ? "error" : "primary";
         return new MetricDetailRow(
                 opportunity.getPublicId(),
                 "OPPORTUNITY",
@@ -525,6 +543,13 @@ public class DashboardService {
                 .map(this::safeAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        List<Opportunity> invoiced = opportunities.stream()
+                .filter(opportunity -> INVOICED_STATUS.equals(opportunity.getStatusCode()))
+                .toList();
+        List<Opportunity> closed = opportunities.stream()
+                .filter(opportunity -> CLOSED_STATUS.equals(opportunity.getStatusCode()))
+                .toList();
+
         long won = opportunities.stream().filter(this::isWonOpportunity).count();
         long lost = opportunities.stream().filter(this::isLostOpportunity).count();
         long activeSales = filter.scope() == DashboardScope.SELECTED_SALES
@@ -539,6 +564,12 @@ public class DashboardService {
                 openMargin,
                 wonRevenue,
                 wonMargin,
+                sumAmount(invoiced),
+                sumMargin(invoiced),
+                invoiced.size(),
+                sumAmount(closed),
+                sumMargin(closed),
+                closed.size(),
                 forecastedMargin,
                 contacts,
                 organizations,
@@ -846,6 +877,20 @@ public class DashboardService {
         return amount == null ? BigDecimal.ZERO : amount;
     }
 
+    private BigDecimal sumAmount(List<Opportunity> opportunities) {
+        return opportunities.stream()
+                .map(Opportunity::getEstimatedAmount)
+                .map(this::safeAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal sumMargin(List<Opportunity> opportunities) {
+        return opportunities.stream()
+                .map(Opportunity::getMargin)
+                .map(this::safeAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     private long asLong(Object value) {
         return value == null ? 0L : ((Number) value).longValue();
     }
@@ -974,6 +1019,8 @@ public class DashboardService {
         OPEN_PIPELINE,
         WON_REVENUE,
         WON_MARGIN,
+        INVOICED,
+        CLOSED,
         FORECASTED_MARGIN,
         CLOSING_SOON,
         CLOSED_WIN_RATE,
