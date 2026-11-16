@@ -5,12 +5,14 @@ import com.quadteknologi.crm.domain.entity.LeadItem;
 import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.entity.Company;
+import com.quadteknologi.crm.domain.entity.InternalCompany;
 import com.quadteknologi.crm.domain.entity.Country;
 import com.quadteknologi.crm.domain.entity.Person;
 import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.security.AppViewAccess;
 import com.quadteknologi.crm.security.ViewAccessService;
+import com.quadteknologi.crm.service.ActiveInternalCompanySession;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.service.DataAccessService;
 import com.quadteknologi.crm.service.LeadService;
@@ -91,6 +93,7 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
     private final ContactService contactService;
     private final DataAccessService dataAccessService;
     private final ViewAccessService viewAccessService;
+    private final ActiveInternalCompanySession activeInternalCompanySession;
     private KanbanBoard<Lead> kanbanBoard;
     private Component activeContent;
     private MasterDetailLayout gridLayout;
@@ -110,11 +113,13 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
             LeadService leadService,
             ContactService contactService,
             DataAccessService dataAccessService,
-            ViewAccessService viewAccessService) {
+            ViewAccessService viewAccessService,
+            ActiveInternalCompanySession activeInternalCompanySession) {
         this.leadService = leadService;
         this.contactService = contactService;
         this.dataAccessService = dataAccessService;
         this.viewAccessService = viewAccessService;
+        this.activeInternalCompanySession = activeInternalCompanySession;
 
         addClassName("page-view");
         setPadding(false);
@@ -436,10 +441,17 @@ public class LeadsView extends VerticalLayout implements BeforeEnterObserver {
                 ? createRequestFromLead(lead)
                 : new LeadService.CreateLeadRequest();
 
+        String internalCompany = (editing
+                ? Optional.ofNullable(lead.getInternalCompany())
+                : activeInternalCompanySession.getCompany())
+                .map(InternalCompany::getName)
+                .orElse("-");
+
         Binder<LeadService.CreateLeadRequest> binder = new Binder<>(LeadService.CreateLeadRequest.class);
         Div detail = createLeadFormShell(
                 editing ? "Edit Lead" : "Create Lead",
-                editing ? "Update lead details and stage." : "Capture the lead and log its first activity.",
+                (editing ? "Update lead details and stage." : "Capture the lead and log its first activity.")
+                        + " Internal company: " + internalCompany + ".",
                 editing);
 
         List<OptionValue> statuses = leadService.findPipelineStatuses();

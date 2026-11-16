@@ -59,6 +59,7 @@ public class LeadService {
     private final PersonRepository personRepository;
     private final UserRepository userRepository;
     private final DataAccessService dataAccessService;
+    private final ActiveInternalCompanySession activeInternalCompanySession;
 
     public LeadService(
             OptionValueRepository optionValueRepository,
@@ -70,7 +71,8 @@ public class LeadService {
             CompanyRepository companyRepository,
             PersonRepository personRepository,
             UserRepository userRepository,
-            DataAccessService dataAccessService) {
+            DataAccessService dataAccessService,
+            ActiveInternalCompanySession activeInternalCompanySession) {
         this.optionValueRepository = optionValueRepository;
         this.leadRepository = leadRepository;
         this.leadItemRepository = leadItemRepository;
@@ -81,6 +83,7 @@ public class LeadService {
         this.personRepository = personRepository;
         this.userRepository = userRepository;
         this.dataAccessService = dataAccessService;
+        this.activeInternalCompanySession = activeInternalCompanySession;
     }
 
     public List<OptionValue> findPipelineStatuses() {
@@ -108,14 +111,21 @@ public class LeadService {
     }
 
     public Map<String, List<Lead>> findPipelineLeadsByStatus() {
+        Long companyId = activeInternalCompanySession.requireCompanyId();
         List<Lead> leads = dataAccessService.isSalesScope()
                 ? leadRepository.findByStatusGroupCodeAndCreatedByIdOrderByCreatedAtDesc(
                         LEAD_STATUS_GROUP, dataAccessService.requireCurrentUserId())
                 : leadRepository.findByStatusGroupCodeOrderByCreatedAtDesc(LEAD_STATUS_GROUP);
         return leads
                 .stream()
+                .filter(lead -> belongsToCompany(lead, companyId))
                 .filter(lead -> lead.getConvertedAt() == null)
                 .collect(Collectors.groupingBy(Lead::getStatusCode));
+    }
+
+    private static boolean belongsToCompany(Lead lead, Long companyId) {
+        return lead.getInternalCompany() != null
+                && Objects.equals(lead.getInternalCompany().getId(), companyId);
     }
 
     public OptionValue getDefaultPipelineStatus() {
@@ -200,6 +210,7 @@ public class LeadService {
         Lead lead = new Lead();
         lead.setTitle(trimToNull(request.getTitle()));
         lead.setCompany(company);
+        lead.setInternalCompany(activeInternalCompanySession.requireCompany());
         lead.setPerson(person);
         lead.setRawCompanyName(trimToNull(request.getRawCompanyName()));
         lead.setRawPersonName(trimToNull(request.getRawPersonName()));
@@ -352,6 +363,7 @@ public class LeadService {
         opportunity.setTitle(lead.getTitle());
         opportunity.setLead(lead);
         opportunity.setCompany(lead.getCompany());
+        opportunity.setInternalCompany(lead.getInternalCompany());
         opportunity.setPerson(lead.getPerson());
         opportunity.setStatusGroupCode(OPPORTUNITY_STATUS_GROUP);
         opportunity.setStatusCode(statusCode);

@@ -4,6 +4,7 @@ import com.quadteknologi.crm.views.CompaniesView;
 import com.quadteknologi.crm.views.ContactView;
 import com.quadteknologi.crm.views.DashboardSalesView;
 import com.quadteknologi.crm.views.DashboardView;
+import com.quadteknologi.crm.views.InternalCompaniesView;
 import com.quadteknologi.crm.views.LeadsView;
 import com.quadteknologi.crm.views.OpportunitiesView;
 import com.quadteknologi.crm.views.PersonsView;
@@ -25,7 +26,8 @@ public enum AppViewAccess {
     COMPANIES("Companies", CompaniesView.class, false),
     PERSONS("Persons", PersonsView.class, false),
     USER_SETTINGS("User Settings", UserSettingsView.class, true),
-    ROLE_ACCESS("Role Access", RoleAccessView.class, true);
+    ROLE_ACCESS("Role Access", RoleAccessView.class, true),
+    INTERNAL_COMPANIES("Internal Companies", InternalCompaniesView.class, true);
 
     private final String label;
     private final Class<? extends Component> viewClass;

@@ -166,6 +166,7 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
                 group by lead_id
             ) opportunity_summary on opportunity_summary.lead_id = lead.id
             where lead.status_group_code = :statusGroupCode
+              and lead.internal_company_id = :internalCompanyId
               and lead.created_at >= :from
               and lead.created_at < :to
               and (:assignedToId is null or lead.assigned_to = :assignedToId)
@@ -191,5 +192,6 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
             @Param("assignedToId") Long assignedToId,
             @Param("leadStatusCode") String leadStatusCode,
             @Param("opportunityStatusCode") String opportunityStatusCode,
-            @Param("leadSource") String leadSource);
+            @Param("leadSource") String leadSource,
+            @Param("internalCompanyId") Long internalCompanyId);
 }

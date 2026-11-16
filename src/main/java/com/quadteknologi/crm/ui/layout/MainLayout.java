@@ -1,12 +1,16 @@
 package com.quadteknologi.crm.ui.layout;
 
+import com.quadteknologi.crm.domain.entity.InternalCompany;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.security.AppViewAccess;
 import com.quadteknologi.crm.security.CurrentUserService;
 import com.quadteknologi.crm.security.ViewAccessService;
+import com.quadteknologi.crm.service.ActiveInternalCompanySession;
+import com.quadteknologi.crm.service.InternalCompanyService;
 import com.quadteknologi.crm.views.ContactView;
 import com.quadteknologi.crm.views.DashboardSalesView;
 import com.quadteknologi.crm.views.DashboardView;
+import com.quadteknologi.crm.views.InternalCompaniesView;
 import com.quadteknologi.crm.views.LeadsView;
 import com.quadteknologi.crm.views.OpportunitiesView;
 import com.quadteknologi.crm.views.RoleAccessView;
@@ -20,14 +24,23 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.contextmenu.ContextMenu;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.*;
+import com.vaadin.flow.component.icon.Icon;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.component.popover.Popover;
+import com.vaadin.flow.component.popover.PopoverPosition;
+import com.vaadin.flow.component.radiobutton.RadioButtonGroup;
 import com.vaadin.flow.component.textfield.PasswordField;
+import com.vaadin.flow.component.UI;
+import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.RouterLink;
 import jakarta.annotation.security.PermitAll;
 
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
+import static com.quadteknologi.crm.ui.util.InternalCompanyUi.logoTile;
 import static com.quadteknologi.crm.ui.util.UiNotifications.showError;
 import static com.quadteknologi.crm.ui.util.UiNotifications.showSuccess;
 import static com.quadteknologi.crm.util.TextUtils.initials;
@@ -38,15 +51,23 @@ public class MainLayout extends AppLayout {
 
     private final CurrentUserService currentUserService;
     private final ViewAccessService viewAccessService;
+    private final ActiveInternalCompanySession activeInternalCompanySession;
+    private final InternalCompanyService internalCompanyService;
 
-    public MainLayout(CurrentUserService currentUserService, ViewAccessService viewAccessService) {
+    public MainLayout(CurrentUserService currentUserService,
+            ViewAccessService viewAccessService,
+            ActiveInternalCompanySession activeInternalCompanySession,
+            InternalCompanyService internalCompanyService) {
         this.currentUserService = currentUserService;
         this.viewAccessService = viewAccessService;
+        this.activeInternalCompanySession = activeInternalCompanySession;
+        this.internalCompanyService = internalCompanyService;
 
         setPrimarySection(Section.DRAWER);
 
         addToNavbar(createHeader());
         addToDrawer(createDrawer());
+        addAttachListener(event -> applyCompanyAccent());
     }
 
     private Component createHeader() {
@@ -71,10 +92,7 @@ public class MainLayout extends AppLayout {
         VerticalLayout drawerLayout = new VerticalLayout();
         drawerLayout.setSizeFull();
 
-        Image logo = new Image("images/logo.png", "Quad Logo");
-        logo.addClassName("logo");
-        drawerLayout.add(logo);
-
+        drawerLayout.add(createCompanySwitcher());
         VerticalLayout navigationLayout = new VerticalLayout();
         navigationLayout.setSpacing(true);
         if (viewAccessService.canAccess(AppViewAccess.DASHBOARD)) {
@@ -101,6 +119,10 @@ public class MainLayout extends AppLayout {
             navigationLayout.add(
                     createNavLink("Role Access", VaadinIcon.KEY, RoleAccessView.class));
         }
+        if (viewAccessService.canAccess(AppViewAccess.INTERNAL_COMPANIES)) {
+            navigationLayout.add(
+                    createNavLink("Internal Companies", VaadinIcon.BUILDING, InternalCompaniesView.class));
+        }
 
         Div spacer = new Div();
         spacer.addClassName("drawer-spacer");
@@ -108,6 +130,95 @@ public class MainLayout extends AppLayout {
         drawerLayout.add(navigationLayout, spacer);
 
         return drawerLayout;
+    }
+
+    private Component createCompanySwitcher() {
+        Div switcher = new Div();
+        switcher.addClassName("company-switcher");
+
+        List<InternalCompany> companies = internalCompanyService.findActiveCompanies();
+        if (companies.isEmpty()) {
+            Image logoComponent = new Image("images/logo.png", "Quad Logo");
+            logoComponent.addClassName("logo");
+            switcher.add(logoComponent);
+            return switcher;
+        }
+
+        Optional<InternalCompany> activeCompany = activeInternalCompanySession.getCompany()
+                .flatMap(active -> companies.stream()
+                        .filter(company -> Objects.equals(company.getId(), active.getId()))
+                        .findFirst());
+
+        Button trigger = new Button();
+        trigger.addClassName("company-trigger");
+        trigger.getElement().setAttribute("aria-haspopup", "dialog");
+        activeCompany.ifPresent(company -> trigger.getElement()
+                .setAttribute("aria-label", "Switch company: " + company.getName()));
+
+        Div identity = new Div();
+        identity.addClassNames("company-trigger-identity", "flex", "flex-col", "min-w-0");
+
+        Span name = new Span(activeCompany.map(InternalCompany::getName).orElse("Select company"));
+        name.addClassNames("company-trigger-name", "truncate");
+        name.getElement().setAttribute("title", name.getText());
+
+        Span meta = new Span("Internal company");
+        meta.addClassName("company-trigger-meta");
+
+        identity.add(name, meta);
+
+        Icon chevron = VaadinIcon.CHEVRON_DOWN.create();
+        chevron.addClassName("company-trigger-chevron");
+
+        Component tile = activeCompany
+                .<Component>map(company -> logoTile(company, internalCompanyService))
+                .orElseGet(() -> logoTile(companies.get(0), internalCompanyService));
+
+        Div content = new Div();
+        content.addClassName("company-trigger-content");
+        content.add(tile, identity, chevron);
+        trigger.setIcon(content);
+        trigger.getElement().removeAttribute("theme");
+
+        Popover popover = new Popover();
+        popover.setTarget(trigger);
+        popover.setPosition(PopoverPosition.BOTTOM_START);
+        popover.setWidth("min(280px, calc(100vw - 32px))");
+        popover.addClassName("company-popover");
+        popover.getElement().setAttribute("aria-label", "Switch company");
+
+        RadioButtonGroup<InternalCompany> options = new RadioButtonGroup<>();
+        options.addClassName("company-options");
+        options.setLabel("Switch company");
+        options.setItems(companies);
+        options.setRenderer(new ComponentRenderer<>(company -> {
+            Div row = new Div();
+            row.addClassNames("company-option", "flex", "items-center", "gap-2.5", "min-w-0");
+            Span rowName = new Span(company.getName());
+            rowName.addClassName("truncate");
+            row.add(logoTile(company, internalCompanyService), rowName);
+            return row;
+        }));
+        activeCompany.ifPresent(options::setValue);
+        options.addValueChangeListener(event -> {
+            if (!event.isFromClient() || event.getValue() == null) {
+                return;
+            }
+            activeInternalCompanySession.select(event.getValue());
+            popover.close();
+            UI.getCurrent().getPage().reload();
+        });
+
+        popover.add(options);
+        switcher.add(trigger, popover);
+        return switcher;
+    }
+
+    private void applyCompanyAccent() {
+        activeInternalCompanySession.getCompany().ifPresent(company -> UI.getCurrent()
+                .getPage()
+                .executeJs("document.documentElement.style.setProperty('--aura-accent-color-light', $0)",
+                        InternalCompanyService.normalizeColor(company.getPrimaryColor())));
     }
 
     private RouterLink createNavLink(String label, VaadinIcon icon, Class<? extends Component> viewClass) {

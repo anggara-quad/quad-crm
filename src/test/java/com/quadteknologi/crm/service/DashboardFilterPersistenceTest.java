@@ -50,6 +50,8 @@ class DashboardFilterPersistenceTest {
 
     @Mock
     private ContactService contactService;
+    @Mock
+    private ActiveInternalCompanySession activeInternalCompanySession;
 
     @Test
     void dashboardAndSalesSlotsKeepSeparateFilters() {
@@ -73,6 +75,7 @@ class DashboardFilterPersistenceTest {
         when(leadRepository.findDashboardLeads(
                 eq("LEAD_STATUS"), any(LocalDateTime.class), any(LocalDateTime.class), isNull()))
                 .thenReturn(List.of());
+        when(activeInternalCompanySession.requireCompanyId()).thenReturn(1L);
 
         DashboardService service = new DashboardService(
                 leadRepository,
@@ -82,7 +85,8 @@ class DashboardFilterPersistenceTest {
                 userRepository,
                 dataAccessService,
                 currentUserService,
-                contactService);
+                contactService,
+                activeInternalCompanySession);
 
         MetricDetails details = service.getMetricDetails(
                 new DashboardFilter(DashboardScope.SELECTED_SALES, 99L, start, end),

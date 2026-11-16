@@ -57,6 +57,7 @@ public class DashboardService {
     private final DataAccessService dataAccessService;
     private final CurrentUserService currentUserService;
     private final ContactService contactService;
+    private final ActiveInternalCompanySession activeInternalCompanySession;
 
     public DashboardService(
             LeadRepository leadRepository,
@@ -66,7 +67,8 @@ public class DashboardService {
             UserRepository userRepository,
             DataAccessService dataAccessService,
             CurrentUserService currentUserService,
-            ContactService contactService) {
+            ContactService contactService,
+            ActiveInternalCompanySession activeInternalCompanySession) {
         this.leadRepository = leadRepository;
         this.opportunityRepository = opportunityRepository;
         this.activityRepository = activityRepository;
@@ -75,6 +77,7 @@ public class DashboardService {
         this.dataAccessService = dataAccessService;
         this.currentUserService = currentUserService;
         this.contactService = contactService;
+        this.activeInternalCompanySession = activeInternalCompanySession;
     }
 
     public DashboardData getDashboardData(DashboardFilter requestedFilter) {
@@ -127,6 +130,7 @@ public class DashboardService {
                             LocalDate.now(),
                             LocalDate.now().plusDays(CLOSING_SOON_DAYS),
                             filter.salesId()).stream()
+                    .filter(opportunity -> belongsToCompany(opportunity, activeInternalCompanySession.requireCompanyId()))
                     .filter(opportunity -> matchesOpportunityFilters(opportunity, filter))
                     .map(this::mapMetricOpportunity)
                     .toList();
@@ -157,15 +161,24 @@ public class DashboardService {
                 OPPORTUNITY_STATUS_GROUP);
 
         Long salesId = filter.salesId();
-        List<Lead> baseLeads = leadRepository.findDashboardLeads(LEAD_STATUS_GROUP, from, to, salesId);
+        Long companyId = activeInternalCompanySession.requireCompanyId();
+        List<Lead> baseLeads = leadRepository.findDashboardLeads(LEAD_STATUS_GROUP, from, to, salesId).stream()
+                .filter(lead -> belongsToCompany(lead, companyId))
+                .toList();
         List<Opportunity> baseOpportunities = opportunityRepository.findDashboardOpportunities(
-                OPPORTUNITY_STATUS_GROUP, from, to, salesId);
+                OPPORTUNITY_STATUS_GROUP, from, to, salesId).stream()
+                .filter(opportunity -> belongsToCompany(opportunity, companyId))
+                .toList();
         List<Lead> leads = applyLeadFilters(baseLeads, baseOpportunities, filter);
         List<Opportunity> opportunities = applyOpportunityFilters(baseOpportunities, filter);
         List<Opportunity> closingSoon = opportunityRepository.findDashboardClosingSoon(
-                OPPORTUNITY_STATUS_GROUP, LocalDate.now(), LocalDate.now().plusDays(CLOSING_SOON_DAYS), salesId);
+                        OPPORTUNITY_STATUS_GROUP, LocalDate.now(), LocalDate.now().plusDays(CLOSING_SOON_DAYS), salesId)
+                .stream()
+                .filter(opportunity -> belongsToCompany(opportunity, companyId))
+                .toList();
         closingSoon = applyOpportunityFilters(closingSoon, filter);
         List<Activity> activities = activityRepository.findDashboardActivities(from, to, salesId).stream()
+                .filter(activity -> belongsToCompany(activity, companyId))
                 .filter(activity -> matchesActivityFilters(activity, filter))
                 .toList();
         List<User> salesUsers = teamDashboard ? userRepository.findActiveSalesUsersOrderByFullNameAsc() : List.of();
@@ -202,7 +215,8 @@ public class DashboardService {
                         salesId,
                         filter.leadStatusCode(),
                         filter.opportunityStatusCode(),
-                        filter.leadSource()));
+                        filter.leadSource(),
+                        companyId));
         List<ClosingSoonDto> closingSoonItems = closingSoon.stream()
                 .limit(teamDashboard ? 8 : 6)
                 .map(this::mapClosingSoon)
@@ -321,12 +335,17 @@ public class DashboardService {
             DashboardFilter filter,
             LocalDateTime from,
             LocalDateTime to) {
+        Long companyId = activeInternalCompanySession.requireCompanyId();
         List<Lead> leads = leadRepository.findDashboardLeads(
-                LEAD_STATUS_GROUP, from, to, filter.salesId());
+                        LEAD_STATUS_GROUP, from, to, filter.salesId()).stream()
+                .filter(lead -> belongsToCompany(lead, companyId))
+                .toList();
         List<Opportunity> opportunities = filter.opportunityStatusCode() == null
                 ? List.of()
                 : opportunityRepository.findDashboardOpportunities(
-                        OPPORTUNITY_STATUS_GROUP, from, to, filter.salesId());
+                                OPPORTUNITY_STATUS_GROUP, from, to, filter.salesId()).stream()
+                        .filter(opportunity -> belongsToCompany(opportunity, companyId))
+                        .toList();
         return applyLeadFilters(leads, opportunities, filter);
     }
 
@@ -334,17 +353,41 @@ public class DashboardService {
             DashboardFilter filter,
             LocalDateTime from,
             LocalDateTime to) {
+        Long companyId = activeInternalCompanySession.requireCompanyId();
         return applyOpportunityFilters(
                 opportunityRepository.findDashboardOpportunities(
-                        OPPORTUNITY_STATUS_GROUP, from, to, filter.salesId()),
+                                OPPORTUNITY_STATUS_GROUP, from, to, filter.salesId()).stream()
+                        .filter(opportunity -> belongsToCompany(opportunity, companyId))
+                        .toList(),
                 filter);
     }
 
     private List<Opportunity> findForecastMetricOpportunities(DashboardFilter filter) {
+        Long companyId = activeInternalCompanySession.requireCompanyId();
         return applyOpportunityFilters(
                 opportunityRepository.findDashboardForecastOpportunities(
-                        OPPORTUNITY_STATUS_GROUP, filter.startDate(), filter.endDate(), filter.salesId()),
+                                OPPORTUNITY_STATUS_GROUP, filter.startDate(), filter.endDate(), filter.salesId())
+                        .stream()
+                        .filter(opportunity -> belongsToCompany(opportunity, companyId))
+                        .toList(),
                 filter);
+    }
+
+    private static boolean belongsToCompany(Lead lead, Long companyId) {
+        return lead.getInternalCompany() != null
+                && Objects.equals(lead.getInternalCompany().getId(), companyId);
+    }
+
+    private static boolean belongsToCompany(Opportunity opportunity, Long companyId) {
+        return opportunity.getInternalCompany() != null
+                && Objects.equals(opportunity.getInternalCompany().getId(), companyId);
+    }
+
+    private static boolean belongsToCompany(Activity activity, Long companyId) {
+        if (activity.getOpportunity() != null) {
+            return belongsToCompany(activity.getOpportunity(), companyId);
+        }
+        return activity.getLead() != null && belongsToCompany(activity.getLead(), companyId);
     }
 
     private boolean matchesOpportunityFilters(Opportunity opportunity, DashboardFilter filter) {

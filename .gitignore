@@ -46,3 +46,6 @@ package-lock.json
 vite.generated.ts
 /generate.sh
 /src/main/resources/META-INF/resources/templates/import-glo.xlsx
+
+### Uploaded files ###
+/data/

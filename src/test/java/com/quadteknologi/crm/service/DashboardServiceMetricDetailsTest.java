@@ -1,5 +1,6 @@
 package com.quadteknologi.crm.service;
 
+import com.quadteknologi.crm.domain.entity.InternalCompany;
 import com.quadteknologi.crm.domain.entity.Lead;
 import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.OptionValue;
@@ -44,6 +45,8 @@ class DashboardServiceMetricDetailsTest {
     private CurrentUserService currentUserService;
     @Mock
     private ContactService contactService;
+    @Mock
+    private ActiveInternalCompanySession activeInternalCompanySession;
 
     private DashboardService service;
     private DashboardFilter filter;
@@ -58,7 +61,9 @@ class DashboardServiceMetricDetailsTest {
                 userRepository,
                 dataAccessService,
                 currentUserService,
-                contactService);
+                contactService,
+                activeInternalCompanySession);
+        when(activeInternalCompanySession.requireCompanyId()).thenReturn(1L);
         LocalDate date = LocalDate.of(2026, 8, 27);
         filter = new DashboardFilter(DashboardScope.TEAM_DATA, null, date, date);
     }
@@ -197,16 +202,25 @@ class DashboardServiceMetricDetailsTest {
         opportunity.setStatusCode(statusCode);
         opportunity.setEstimatedAmount(BigDecimal.TEN);
         opportunity.setMargin(BigDecimal.ONE);
+        opportunity.setInternalCompany(activeCompany());
         return opportunity;
     }
 
     private Opportunity opportunityWithStatus(String title, OptionValue status) {
         String statusCode = status.getCode();
+        InternalCompany company = activeCompany();
         Opportunity opportunity = mock(Opportunity.class);
         when(opportunity.getTitle()).thenReturn(title);
         when(opportunity.getStatus()).thenReturn(status);
         when(opportunity.getStatusCode()).thenReturn(statusCode);
+        when(opportunity.getInternalCompany()).thenReturn(company);
         return opportunity;
+    }
+
+    private InternalCompany activeCompany() {
+        InternalCompany company = mock(InternalCompany.class);
+        when(company.getId()).thenReturn(1L);
+        return company;
     }
 
     private OptionValue wonStatus(String code) {
@@ -221,6 +235,7 @@ class DashboardServiceMetricDetailsTest {
         Lead lead = new Lead();
         lead.setTitle(title);
         lead.setStatusCode(statusCode);
+        lead.setInternalCompany(activeCompany());
         return lead;
     }
 }

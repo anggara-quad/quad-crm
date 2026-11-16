@@ -1,5 +1,6 @@
 package com.quadteknologi.crm.service;
 
+import com.quadteknologi.crm.domain.entity.InternalCompany;
 import com.quadteknologi.crm.domain.entity.Opportunity;
 import com.quadteknologi.crm.domain.entity.OptionValue;
 import com.quadteknologi.crm.domain.repository.ActivityRepository;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,6 +26,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -50,6 +53,8 @@ class OpportunityServiceTest {
     private UserRepository userRepository;
     @Mock
     private DataAccessService dataAccessService;
+    @Mock
+    private ActiveInternalCompanySession activeInternalCompanySession;
 
     private OpportunityService service;
 
@@ -65,7 +70,8 @@ class OpportunityServiceTest {
                 companyRepository,
                 personRepository,
                 userRepository,
-                dataAccessService);
+                dataAccessService,
+                activeInternalCompanySession);
     }
 
     @Test
@@ -139,6 +145,24 @@ class OpportunityServiceTest {
         assertThatThrownBy(() -> service.createOpportunity(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("New opportunities cannot start at Invoiced");
+    }
+
+    @Test
+    void createOpportunityAssignsActiveInternalCompany() {
+        InternalCompany company = mock(InternalCompany.class);
+        when(activeInternalCompanySession.requireCompany()).thenReturn(company);
+        when(opportunityRepository.save(any(Opportunity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        OpportunityService.OpportunityRequest request = new OpportunityService.OpportunityRequest();
+        request.setTitle("New opportunity");
+        request.setMargin(BigDecimal.ONE);
+        request.setProbability(50);
+        request.setExpectedCloseDate(LocalDate.now());
+
+        Opportunity saved = service.createOpportunity(request);
+
+        assertThat(saved.getInternalCompany()).isSameAs(company);
     }
 
     private List<String> codes(List<OptionValue> statuses) {

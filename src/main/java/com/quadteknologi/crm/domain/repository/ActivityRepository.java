@@ -47,7 +47,9 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
             order by activity.activityDate desc
             """)
     @EntityGraph(attributePaths = {
-            "type", "lead", "lead.assignedTo", "opportunity", "opportunity.assignedTo", "company", "person", "createdBy"
+            "type", "lead", "lead.assignedTo", "lead.internalCompany",
+            "opportunity", "opportunity.assignedTo", "opportunity.internalCompany",
+            "company", "person", "createdBy"
     })
     List<Activity> findDashboardActivities(
             @Param("from") LocalDateTime from,

@@ -59,6 +59,7 @@ public class OpportunityService {
     private final PersonRepository personRepository;
     private final UserRepository userRepository;
     private final DataAccessService dataAccessService;
+    private final ActiveInternalCompanySession activeInternalCompanySession;
 
     public OpportunityService(
             OptionValueRepository optionValueRepository,
@@ -70,7 +71,8 @@ public class OpportunityService {
             CompanyRepository companyRepository,
             PersonRepository personRepository,
             UserRepository userRepository,
-            DataAccessService dataAccessService) {
+            DataAccessService dataAccessService,
+            ActiveInternalCompanySession activeInternalCompanySession) {
         this.optionValueRepository = optionValueRepository;
         this.opportunityRepository = opportunityRepository;
         this.opportunityItemRepository = opportunityItemRepository;
@@ -81,6 +83,7 @@ public class OpportunityService {
         this.personRepository = personRepository;
         this.userRepository = userRepository;
         this.dataAccessService = dataAccessService;
+        this.activeInternalCompanySession = activeInternalCompanySession;
     }
 
     public List<OptionValue> findPipelineStatuses() {
@@ -112,13 +115,20 @@ public class OpportunityService {
     }
 
     public Map<String, List<Opportunity>> findPipelineOpportunitiesByStatus() {
+        Long companyId = activeInternalCompanySession.requireCompanyId();
         List<Opportunity> opportunities = dataAccessService.isSalesScope()
                 ? opportunityRepository.findByStatusGroupCodeAndCreatedByIdOrderByCreatedAtDesc(
                         OPPORTUNITY_STATUS_GROUP, dataAccessService.requireCurrentUserId())
                 : opportunityRepository.findByStatusGroupCodeOrderByCreatedAtDesc(OPPORTUNITY_STATUS_GROUP);
         return opportunities
                 .stream()
+                .filter(opportunity -> belongsToCompany(opportunity, companyId))
                 .collect(Collectors.groupingBy(Opportunity::getStatusCode));
+    }
+
+    private static boolean belongsToCompany(Opportunity opportunity, Long companyId) {
+        return opportunity.getInternalCompany() != null
+                && Objects.equals(opportunity.getInternalCompany().getId(), companyId);
     }
 
     public List<OptionValue> findProductTypes() {
@@ -156,11 +166,16 @@ public class OpportunityService {
     }
 
     public List<Lead> findValidLeads() {
-        if (dataAccessService.isSalesScope()) {
-            return leadRepository.findUnconvertedByStatusGroupCodeAndStatusCodeAndCreatedByIdOrderByCreatedAtDesc(
-                    LEAD_STATUS_GROUP, "VALID", dataAccessService.requireCurrentUserId());
-        }
-        return leadRepository.findUnconvertedByStatusGroupCodeAndStatusCodeOrderByCreatedAtDesc(LEAD_STATUS_GROUP, "VALID");
+        Long companyId = activeInternalCompanySession.requireCompanyId();
+        List<Lead> leads = dataAccessService.isSalesScope()
+                ? leadRepository.findUnconvertedByStatusGroupCodeAndStatusCodeAndCreatedByIdOrderByCreatedAtDesc(
+                        LEAD_STATUS_GROUP, "VALID", dataAccessService.requireCurrentUserId())
+                : leadRepository.findUnconvertedByStatusGroupCodeAndStatusCodeOrderByCreatedAtDesc(
+                        LEAD_STATUS_GROUP, "VALID");
+        return leads.stream()
+                .filter(lead -> lead.getInternalCompany() != null
+                        && Objects.equals(lead.getInternalCompany().getId(), companyId))
+                .toList();
     }
 
     public List<Company> findCompanies() {
@@ -189,6 +204,7 @@ public class OpportunityService {
         assertCreatableStatus(request.getStatus());
         Opportunity opportunity = new Opportunity();
         applyRequest(opportunity, request);
+        opportunity.setInternalCompany(activeInternalCompanySession.requireCompany());
         opportunity.setCreatedBy(dataAccessService.requireCurrentUserReference());
         Opportunity savedOpportunity = opportunityRepository.save(opportunity);
         if (request.getItems().isEmpty() && savedOpportunity.getLead() != null) {

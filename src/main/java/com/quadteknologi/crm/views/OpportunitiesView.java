@@ -1,6 +1,7 @@
 package com.quadteknologi.crm.views;
 
 import com.quadteknologi.crm.domain.entity.Company;
+import com.quadteknologi.crm.domain.entity.InternalCompany;
 import com.quadteknologi.crm.domain.entity.Country;
 import com.quadteknologi.crm.domain.entity.Lead;
 import com.quadteknologi.crm.domain.entity.Opportunity;
@@ -11,6 +12,7 @@ import com.quadteknologi.crm.domain.entity.Region;
 import com.quadteknologi.crm.domain.entity.User;
 import com.quadteknologi.crm.security.AppViewAccess;
 import com.quadteknologi.crm.security.ViewAccessService;
+import com.quadteknologi.crm.service.ActiveInternalCompanySession;
 import com.quadteknologi.crm.service.ContactService;
 import com.quadteknologi.crm.service.DataAccessService;
 import com.quadteknologi.crm.service.OpportunityService;
@@ -91,6 +93,7 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
     private final ContactService contactService;
     private final DataAccessService dataAccessService;
     private final ViewAccessService viewAccessService;
+    private final ActiveInternalCompanySession activeInternalCompanySession;
     private KanbanBoard<Opportunity> kanbanBoard;
     private Component activeContent;
     private MasterDetailLayout gridLayout;
@@ -110,11 +113,13 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
             OpportunityService opportunityService,
             ContactService contactService,
             DataAccessService dataAccessService,
-            ViewAccessService viewAccessService) {
+            ViewAccessService viewAccessService,
+            ActiveInternalCompanySession activeInternalCompanySession) {
         this.opportunityService = opportunityService;
         this.contactService = contactService;
         this.dataAccessService = dataAccessService;
         this.viewAccessService = viewAccessService;
+        this.activeInternalCompanySession = activeInternalCompanySession;
 
         addClassName("page-view");
         setPadding(false);
@@ -515,11 +520,18 @@ public class OpportunitiesView extends VerticalLayout implements BeforeEnterObse
                 ? createRequestFromOpportunity(opportunity)
                 : new OpportunityService.OpportunityRequest();
 
+        String internalCompany = (editing
+                ? Optional.ofNullable(opportunity.getInternalCompany())
+                : activeInternalCompanySession.getCompany())
+                .map(InternalCompany::getName)
+                .orElse("-");
+
         Binder<OpportunityService.OpportunityRequest> binder =
                 new Binder<>(OpportunityService.OpportunityRequest.class);
         Div detail = createOpportunityFormShell(
                 editing ? "Edit Opportunity" : "Create Opportunity",
-                editing ? "Update opportunity details and stage." : "Capture an opportunity and its first stage.",
+                (editing ? "Update opportunity details and stage." : "Capture an opportunity and its first stage.")
+                        + " Internal company: " + internalCompany + ".",
                 editing);
 
         List<OptionValue> statuses = opportunityService.findSelectableStatuses(

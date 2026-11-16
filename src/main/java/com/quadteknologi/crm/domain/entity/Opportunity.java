@@ -28,6 +28,10 @@ public class Opportunity extends AbstractAuditedEntity {
     private Company company;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "internal_company_id", nullable = false)
+    private InternalCompany internalCompany;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "person_id")
     private Person person;
 
@@ -119,6 +123,14 @@ public class Opportunity extends AbstractAuditedEntity {
 
     public void setCompany(Company company) {
         this.company = company;
+    }
+
+    public InternalCompany getInternalCompany() {
+        return internalCompany;
+    }
+
+    public void setInternalCompany(InternalCompany internalCompany) {
+        this.internalCompany = internalCompany;
     }
 
     public Person getPerson() {
